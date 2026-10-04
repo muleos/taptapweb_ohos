@@ -188,6 +188,16 @@ export const WEB_CHROME_SCRIPT: string = `
   function hideTaptapPromos() {
     if (!isTaptapHost()) { return; }
     try {
+      // 顶部绿色胶囊下载按钮：v1.7.0 逆向确认头部按钮为 a/div.main-layout-header__download-client
+      // （border-radius:100px 胶囊、--phone 变体 accent 绿底白字），可见文案是“下载手机 APP”
+      // 而非“下载App”，旧文字匹配从未命中。按类名精确命中按钮本体，不伤及同行标语。
+      var caps = document.querySelectorAll('.main-layout-header__download-client');
+      for (var c = 0; c < caps.length; c++) {
+        var cap = caps[c];
+        if (!cap || cap.getAttribute('data-ttw-hidden')) { continue; }
+        cap.style.setProperty('display', 'none', 'important');
+        cap.setAttribute('data-ttw-hidden', '1');
+      }
       var all = document.querySelectorAll('div,a,button,span,section,footer,header,aside');
       for (var i = 0; i < all.length; i++) {
         var el = all[i];
@@ -201,8 +211,8 @@ export const WEB_CHROME_SCRIPT: string = `
         }
         // 下载 App：只隐藏按钮本身，且仅限 a/button/span 等真实按钮节点。
         // 不能匹配 div/header 容器——顶部“TapTap 发现好游戏”行的整体文案可能恰为“下载App”，
-        // 误匹配会把整行藏掉（v1.4.0 回归原因）
-        if (text === '下载App' || text === '下载APP') {
+        // 误匹配会把整行藏掉（v1.4.0 回归原因）。类名路径（上方）为主，此处为兜底。
+        if (text === '下载App' || text === '下载APP' || text === '下载手机APP') {
           var tg = (el.tagName || '').toLowerCase();
           if (tg === 'a' || tg === 'button' || tg === 'span') {
             el.style.setProperty('display', 'none', 'important');

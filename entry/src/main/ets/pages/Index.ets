@@ -21,8 +21,7 @@ import {
   saveSlidenum,
   saveWebDarkMode,
   getWebDarkMode,
-  saveFakeAppUa,
-  getFakeAppUa
+  saveFakeAppUa
 } from '../model/StorageService';
 import { DownloadConfirmDialog } from '../component/DownloadConfirmDialog'
 import { IAbstractDownloadHandler } from '../delegate/IWebDownloadFile'
@@ -255,6 +254,8 @@ struct Index {
   @State webDark: string = 'auto'; // 'auto'=跟随系统深浅色, 'dark'=强制深色
   // 沉浸式：状态栏高度留白(px->vp)，供下拉顶栏避开状态栏
   @State safeTopVp: number = 0;
+  // 非全屏布局下页面底栏抬高量(vp)：窗口不延伸到导航区时把网页视口整体上收，避免网页底栏贴屏/被小白条手势区压住
+  @State bottomLiftVp: number = 0;
   // 全屏避让填充色：状态栏区域与页面顶部采样色一致，避免色差断层
   @State topFillColor: string = '';
   // 状态栏原生高度(vp)：全屏布局下二三级页面的避让量来源
@@ -359,6 +360,11 @@ struct Index {
     }
     this.pageUrl = this.saved_home_url || '';
     this.updateSafeTop();
+    // 底栏抬高：仅非全屏布局生效；全屏布局下窗口自管导航区，抬高会留无意义空带
+    const liftVp: number = this.fullLayout ? 0 : 28;
+    if (liftVp !== this.bottomLiftVp) {
+      this.bottomLiftVp = liftVp;
+    }
   }
 
   /** 一级界面判定：主文档 URL 与设置的主页一致（去 query/hash、归一尾斜杠）视为首页，保持沉浸不避让 */
@@ -424,7 +430,10 @@ struct Index {
     this.isHidebar = (await getIshidebar() || this.isHidebar);
     this.isHidestatus = (await getIshidestatus() || this.isHidestatus);
     this.ua_type = (await getUserAgentType() || this.ua_type);
-    this.fakeAppUa = (await getFakeAppUa() || this.fakeAppUa);
+    // 伪装 TapTap 客户端：设置面板开关已移除（v1.7.0），功能恒为默认开启；
+    // 旧版本存过 'false' 的用户在此强制纠正，保证签到/云玩等 inApp 流程可用
+    this.fakeAppUa = 'true';
+    saveFakeAppUa('true');
     this.isFull = (await getIsfull() || this.isFull);
     this.slide_num = (await getSlidenum() || this.slide_num);
     this.webDark = (await getWebDarkMode() || this.webDark);
@@ -697,8 +706,8 @@ struct Index {
           }
           .width("100%")
           .height("100%")
-          // 状态栏避让：全屏布局下 Web 从状态栏下方起排，避让区用页面顶部采样色填充
-          .padding({ top: this.safeTopVp })
+          // 顶部状态栏避让；底部：非全屏布局抬高 28vp 让网页底栏离开屏幕下缘
+          .padding({ top: this.safeTopVp, bottom: this.bottomLiftVp })
           .backgroundColor(this.topFillColor === '' ? $r('app.color.panel_bg') : this.topFillColor)
 
         }
@@ -1025,27 +1034,6 @@ struct Index {
                 this.lastTopBg = '';
                 this.lastBottomBg = '';
                 this.applyImmersiveTheme('', '', true);
-                this.refreshWeb();
-              })
-          }
-
-          Row() {
-            Text("伪装 TapTap 客户端")
-              .fontColor($r('app.color.dialog_text'))
-              .width("35%")
-              .height(32)
-            Text()
-              .width('50%')
-            Toggle({
-              type: ToggleType.Switch,
-              isOn: this.fakeAppUa === 'true'
-            })
-              .width('15%')
-              .height(25)
-              .onChange((isOn: boolean) => {
-                this.fakeAppUa = isOn ? 'true' : 'false';
-                saveFakeAppUa(this.fakeAppUa);
-                this.change_userAgent();
                 this.refreshWeb();
               })
           }
