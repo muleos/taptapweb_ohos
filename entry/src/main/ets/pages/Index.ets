@@ -146,7 +146,7 @@ struct Index {
             this.pic_dl_show = Visibility.Hidden;
           })
           .width('80%')
-          .backgroundColor(Color.White)
+          .backgroundColor($r('app.color.panel_bg'))
           .borderRadius(15)
           .objectFit(ImageFit.ScaleDown)
           .constraintSize({maxHeight: '50%',maxWidth:'80%'})
@@ -319,8 +319,12 @@ struct Index {
         }
       }
     }
-    // 系统栏样式：全屏顶栏恒#1B1C21（浅色同深色）；非全屏小白条恒#161920
+    // 系统栏样式：非全屏时状态栏/小白条背景取页面采样色；全屏同理
     await this.updateSystemBarStyle();
+    // navigationIndicator 异步生效，会把导航栏颜色重置回系统默认黑：延时重设
+    setTimeout(() => {
+      this.updateSystemBarStyle(this.lastTopBg, this.lastBottomBg);
+    }, 350);
     // 计算状态栏高度留白（下拉顶栏避开状态栏）
     try {
       const area = windowClass.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
@@ -562,6 +566,7 @@ struct Index {
               .mixedMode(MixedMode.Compatible)
               .darkMode(this.webDark === 'dark' ? WebDarkMode.On : WebDarkMode.Auto)
               .forceDarkAccess(this.webDark === 'dark')
+              .backgroundColor($r('app.color.panel_bg'))
               .javaScriptOnDocumentStart([{ script: WEB_CHROME_SCRIPT, scriptRules: ['*'] }])
               .onConsole((event) => {
                 // 沉浸式取色桥：页面探针经 console 上报主题背景色
@@ -958,7 +963,7 @@ struct Index {
             .height(30)
 
           Row() {
-            Text("Version:1.2.6")
+            Text("Version:1.2.7")
               .fontColor($r('app.color.dialog_text_secondary'))
               .width('100%')
               .textAlign(TextAlign.Center)
