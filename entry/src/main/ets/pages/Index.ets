@@ -250,7 +250,6 @@ struct Index {
   @State isFull: string = 'true';
   @State slide_num: number = 0.3;
   @State webDark: string = 'auto'; // 'auto'=跟随系统深浅色, 'dark'=强制深色
-  @State sysDarkOn: boolean = false; // 系统当前是否深色（强制深色按钮跟随系统深浅色切换）
   // 沉浸式：状态栏高度留白(px->vp)，供下拉顶栏避开状态栏
   @State safeTopVp: number = 0;
   private lastTopBg: string = '';
@@ -334,9 +333,7 @@ struct Index {
   async aboutToAppear() {
     // 系统深浅色切换：强制重设系统栏（深色：顶栏#1B1C21/底栏#161920）
     EmitterUtil.on<number>('ttw_color_mode_changed', (event) => {
-      // 强制深色按钮跟随系统深浅色切换：记录系统当前是否深色
-      const mode = event?.data as number;
-      this.sysDarkOn = mode === (ConfigurationConstant.ColorMode.COLOR_MODE_DARK as number);
+      // 系统深浅色切换：用最近采样色强制重设系统栏
       this.applyImmersiveTheme(this.lastTopBg, this.lastBottomBg, true);
     });
     // 网页缓存管理：记录最后使用时间；超过 7 天未使用，启动时自动清除缓存
@@ -370,11 +367,6 @@ struct Index {
     this.isFull = (await getIsfull() || this.isFull);
     this.slide_num = (await getSlidenum() || this.slide_num);
     this.webDark = (await getWebDarkMode() || this.webDark);
-    // 强制深色按钮状态同步系统当前深浅色
-    try {
-      this.sysDarkOn = context_index.config?.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK;
-    } catch (err) {
-    }
     // 开启预连接需要先使用上述方法预加载WebView内核。
     //webview.WebviewController.initializeWebEngine();
     // 启动预连接，连接地址为即将打开的网址。
@@ -966,7 +958,7 @@ struct Index {
             .height(30)
 
           Row() {
-            Text("Version:1.2.4")
+            Text("Version:1.2.5")
               .fontColor($r('app.color.dialog_text_secondary'))
               .width('100%')
               .textAlign(TextAlign.Center)
@@ -1132,7 +1124,7 @@ struct Index {
   }
 
   get_isWebDark(): boolean {
-    return this.webDark === 'dark' || this.sysDarkOn;
+    return this.webDark === 'dark';
   }
 
   /** 长按网页图片/视频 -> 接管系统菜单，弹自绘菜单（移植自 aira-browser 长按上下文菜单方案） */
@@ -1232,6 +1224,52 @@ struct Index {
     return false;
   }
 
+  /** 亮度反转（HSV 的 V 取反、降饱和）：用于强制深色渲染时把浅色采样色转成深色 */
+  private darkenSample(hex: string): string {
+    const r = parseInt(hex.substring(1, 3), 16) / 255;
+    const g = parseInt(hex.substring(3, 5), 16) / 255;
+    const b = parseInt(hex.substring(5, 7), 16) / 255;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const v = max;
+    const sv = max === 0 ? 0 : (max - min) / max;
+    let h = 0;
+    if (max !== min) {
+      const d = max - min;
+      if (max === r) {
+        h = (g - b) / d + (g < b ? 6 : 0);
+      } else if (max === g) {
+        h = (b - r) / d + 2;
+      } else {
+        h = (r - g) / d + 4;
+      }
+      h /= 6;
+    }
+    const v2 = 1 - v;
+    const s2 = Math.min(1, sv * 0.6);
+    const i = Math.floor(h * 6);
+    const f = h * 6 - i;
+    const p = v2 * (1 - s2);
+    const q = v2 * (1 - f * s2);
+    const t = v2 * (1 - (1 - f) * s2);
+    let r2 = 0;
+    let g2 = 0;
+    let b2 = 0;
+    switch (i % 6) {
+      case 0: r2 = v2; g2 = t; b2 = p; break;
+      case 1: r2 = q; g2 = v2; b2 = p; break;
+      case 2: r2 = p; g2 = v2; b2 = t; break;
+      case 3: r2 = p; g2 = q; b2 = v2; break;
+      case 4: r2 = t; g2 = p; b2 = v2; break;
+      default: r2 = v2; g2 = p; b2 = q; break;
+    }
+    const to2 = (x: number): string => {
+      const n = Math.round(x * 255).toString(16);
+      return n.length < 2 ? '0' + n : n;
+    };
+    return '#' + to2(r2) + to2(g2) + to2(b2);
+  }
+
   /** 亮度判断：true=浅色背景（用深色图标） */
   private lumLight(hex: string): boolean {
     const r = parseInt(hex.substring(1, 3), 16);
@@ -1249,13 +1287,16 @@ struct Index {
       let statusContent = dark ? '#FFFFFFFF' : '#FF000000';
       let navigationBarColor = dark ? '#FF161920' : '#00000000';
       let navContent = '#FFFFFFFF';
+      // 深色渲染下 DOM 采样仍是浅色主题原始色：浅色采样需反转成深色再上屏
       if (/^#[0-9a-fA-F]{6}$/.test(topBg)) {
-        statusBarColor = '#FF' + topBg.substring(1);
-        statusContent = this.lumLight(topBg) ? '#FF000000' : '#FFFFFFFF';
+        const effTop = dark && this.lumLight(topBg) ? this.darkenSample(topBg) : topBg;
+        statusBarColor = '#FF' + effTop.substring(1);
+        statusContent = this.lumLight(effTop) ? '#FF000000' : '#FFFFFFFF';
       }
       if (/^#[0-9a-fA-F]{6}$/.test(bottomBg)) {
-        navigationBarColor = '#FF' + bottomBg.substring(1);
-        navContent = this.lumLight(bottomBg) ? '#FF000000' : '#FFFFFFFF';
+        const effBottom = dark && this.lumLight(bottomBg) ? this.darkenSample(bottomBg) : bottomBg;
+        navigationBarColor = '#FF' + effBottom.substring(1);
+        navContent = this.lumLight(effBottom) ? '#FF000000' : '#FFFFFFFF';
       }
       win.setWindowSystemBarProperties({
         statusBarColor: statusBarColor,
