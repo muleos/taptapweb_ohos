@@ -199,10 +199,15 @@ export const WEB_CHROME_SCRIPT: string = `
           hideUp(el);
           continue;
         }
-        // 下载 App：只隐藏按钮本身，保留所在行（如顶栏 logo 行正常显示）
+        // 下载 App：只隐藏按钮本身，且仅限 a/button/span 等真实按钮节点。
+        // 不能匹配 div/header 容器——顶部“TapTap 发现好游戏”行的整体文案可能恰为“下载App”，
+        // 误匹配会把整行藏掉（v1.4.0 回归原因）
         if (text === '下载App' || text === '下载APP') {
-          el.style.setProperty('display', 'none', 'important');
-          el.setAttribute('data-ttw-hidden', '1');
+          var tg = (el.tagName || '').toLowerCase();
+          if (tg === 'a' || tg === 'button' || tg === 'span') {
+            el.style.setProperty('display', 'none', 'important');
+            el.setAttribute('data-ttw-hidden', '1');
+          }
         }
       }
     } catch (e) { }
@@ -286,6 +291,68 @@ export const WEB_CHROME_SCRIPT: string = `
       };
     }
   } catch (e) { }
+})();
+;(function () {
+  // 顶栏守卫：确保“TapTap 发现好游戏”行始终可见。
+  // ① 兜底解除本脚本历史上误标记的整行隐藏（data-ttw-hidden 且文案含“发现好游戏”）；
+  // ② 页面加载完成后回到顶部一次，修复顶栏停在视口之上、需手动下拉才能看到的问题
+  if ((navigator.userAgent || '').indexOf('TapTap') < 0) { return; }
+  if (window.__ttwHeaderGuardInstalled) { return; }
+  window.__ttwHeaderGuardInstalled = 1;
+
+  function unhideMarkedRows() {
+    if ((location.hostname || '').indexOf('taptap') < 0) { return; }
+    try {
+      var marked = document.querySelectorAll('[data-ttw-hidden]');
+      for (var i = 0; i < marked.length; i++) {
+        var el = marked[i];
+        var text = (el.textContent || '').replace(/\\s+/g, '');
+        if (text.indexOf('发现好游戏') >= 0) {
+          el.removeAttribute('data-ttw-hidden');
+          el.style.setProperty('display', '', 'important');
+        }
+      }
+    } catch (e) { }
+  }
+
+  var topped = false;
+  function backToTopOnce() {
+    if (topped) { return; }
+    topped = true;
+    try { window.scrollTo(0, 0); } catch (e) { }
+  }
+
+  window.addEventListener('load', function () { unhideMarkedRows(); backToTopOnce(); });
+  window.addEventListener('pageshow', function () { unhideMarkedRows(); });
+  setInterval(unhideMarkedRows, 1500);
+  unhideMarkedRows();
+})();
+;(function () {
+  // 在线玩：游戏详情页“在线玩/启动云游戏”按钮在移动网页端只会唤起 TapTap 客户端
+  // （壳内无客户端，点击无响应），改为跳转 TapTap 官方网页云玩播放页
+  if ((navigator.userAgent || '').indexOf('TapTap') < 0) { return; }
+  if (window.__ttwCloudPlayInstalled) { return; }
+  window.__ttwCloudPlayInstalled = 1;
+  document.addEventListener('click', function (e) {
+    try {
+      var m = (location.pathname || '').match(/^\\/app\\/(\\d+)/);
+      if (!m) { return; }
+      var el = e.target;
+      var hops = 0;
+      while (el && hops < 6) {
+        var text = (el.textContent || '').replace(/\\s+/g, '');
+        if (text === '在线玩' || text.indexOf('启动云游戏') >= 0) {
+          e.preventDefault();
+          e.stopPropagation();
+          window.location.href = '/web-cloud-game/play/' + m[1];
+          return;
+        }
+        if (text.length > 24) { return; }
+        el = el.parentElement;
+        hops++;
+      }
+    } catch (err) { }
+  }, true);
 })();
 //# sourceURL=ttw-web-chrome.js
 `;

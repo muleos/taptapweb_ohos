@@ -267,6 +267,8 @@ struct Index {
   private ctxUrl: string = '';
   // 发布器页已强制桌面 UA（离开发布器 URL 时在 onLoadIntercept 恢复）
   private uaForcedDesktop: boolean = false;
+  // 纯 Web 体验页已临时摘除 TapTap 伪装 UA（离开发时在 onLoadIntercept 恢复）
+  private uaForcedWeb: boolean = false;
 
 
 
@@ -606,9 +608,26 @@ struct Index {
                     return true; // 拦截，不让 WebView 自己加载
                   }
                   // 发布器页移动网页端未适配（页面自述面向电脑端）：进入时自动改用桌面 UA，离开时恢复
-                  if (scheme === 'http' || scheme === 'https') {
+                  // 仅处理主文档导航，避免页面内 XHR/子资源请求触发 UA 反复切换
+                  if ((scheme === 'http' || scheme === 'https') && event.data.isMainFrame()) {
                     const isPub = this.isPublisherUrl(url);
+                    const isWebOnly = this.isWebOnlyUrl(url);
                     if (this.ua_type === 'Mobile') {
+                      // 纯 Web 体验页（poster 活动页/网页云玩）：临时摘除 TapTap 伪装标识，避免页面走客户端专属流
+                      if (this.fakeAppUa === 'true') {
+                        if (isWebOnly && !this.uaForcedWeb) {
+                          this.uaForcedWeb = true;
+                          this.controller.setCustomUserAgent(this.getuseragentbytype('Mobile'));
+                          this.controller.loadUrl(url);
+                          return true;
+                        }
+                        if (!isWebOnly && this.uaForcedWeb) {
+                          this.uaForcedWeb = false;
+                          this.change_userAgent();
+                          this.controller.loadUrl(url);
+                          return true;
+                        }
+                      }
                       if (isPub && !this.uaForcedDesktop) {
                         this.uaForcedDesktop = true;
                         this.controller.setCustomUserAgent(this.getuseragentbytype('PC'));
@@ -1135,8 +1154,9 @@ struct Index {
       return;
     }
     this.isRefreshing = true;
-    // 重置发布器桌面 UA 强制标记，onLoadIntercept 会按当前 URL 重新判定
+    // 重置发布器桌面 UA / 纯 Web 页 UA 强制标记，onLoadIntercept 会按当前 URL 重新判定
     this.uaForcedDesktop = false;
+    this.uaForcedWeb = false;
     // 执行刷新
     this.controller.refresh();
 
@@ -1458,6 +1478,22 @@ struct Index {
       return path.indexOf('/publisher') >= 0 || path.indexOf('/embed/ugc-editor') >= 0 ||
         path.indexOf('/topic/create') >= 0 || path.indexOf('/video/create') >= 0 ||
         path.indexOf('/question/create') >= 0;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  /** 纯 Web 体验页：poster 活动页（如原神角色查询）与网页云玩播放器。
+   * 伪装 UA 会命中页面的“App 内”分支，走客户端专属桥导致无法进入/无按钮；
+   * 进入时临时摘除 TapTap 标识按普通浏览器加载，离开发自动恢复 */
+  private isWebOnlyUrl(url: string): boolean {
+    try {
+      if ((url || '').indexOf('taptap') < 0) {
+        return false;
+      }
+      const pathStart = url.indexOf('/', url.indexOf('//') + 2);
+      const path = pathStart >= 0 ? url.substring(pathStart) : '';
+      return path.indexOf('/poster/') >= 0 || path.indexOf('/web-cloud-game') >= 0;
     } catch (err) {
       return false;
     }
