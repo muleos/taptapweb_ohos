@@ -2,8 +2,8 @@
   "app": {
     "bundleName": "com.hmos.taptapweb",
     "vendor": "muleos",
-    "versionCode": 100015,
-    "versionName": "1.5.1",
+    "versionCode": 100016,
+    "versionName": "1.6.0",
     "icon": "$media:app_icon",
     "label": "$string:app_name"
   }

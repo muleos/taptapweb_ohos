@@ -661,7 +661,7 @@ struct Index {
                     const isPub = this.isPublisherUrl(url);
                     const isWebOnly = this.isWebOnlyUrl(url);
                     if (this.ua_type === 'Mobile') {
-                      // 纯 Web 体验页（poster 活动页/网页云玩）：临时摘除 TapTap 伪装标识，避免页面走客户端专属流
+                      // 纯 Web 体验页（poster 活动页/网页云玩/第三方工具站）：临时摘除 TapTap 伪装标识，避免页面走客户端专属流
                       if (this.fakeAppUa === 'true') {
                         if (isWebOnly && !this.uaForcedWeb) {
                           this.uaForcedWeb = true;
@@ -1536,6 +1536,15 @@ struct Index {
    * 进入时临时摘除 TapTap 标识按普通浏览器加载，离开发自动恢复 */
   private isWebOnlyUrl(url: string): boolean {
     try {
+      const hostStart = (url || '').indexOf('//');
+      const host = hostStart >= 0
+        ? url.substring(hostStart + 2, url.indexOf('/', hostStart + 2) >= 0 ? url.indexOf('/', hostStart + 2) : url.length).toLowerCase()
+        : '';
+      // 非 TapTap 站点（游戏工具箱的第三方工具 H5、OAuth 页等）：一律纯浏览器 UA，
+      // 避免伪装标识让工具页误判处于 TapTap 客户端而调用不存在的桥
+      if (host !== '' && host.indexOf('taptap') < 0) {
+        return true;
+      }
       if ((url || '').indexOf('taptap') < 0) {
         return false;
       }

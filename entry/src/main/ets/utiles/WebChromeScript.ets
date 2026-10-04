@@ -341,7 +341,12 @@ export const WEB_CHROME_SCRIPT: string = `
       var hops = 0;
       while (el && hops < 6) {
         var text = (el.textContent || '').replace(/\\s+/g, '');
-        if (text === '在线玩' || text.indexOf('启动云游戏') >= 0) {
+        var tg = (el.tagName || '').toLowerCase();
+        var hit = text === '在线玩' || text.indexOf('启动云游戏') >= 0 ||
+          text.indexOf('立即云玩') >= 0 || text.indexOf('开始云玩') >= 0 ||
+          ((tg === 'a' || tg === 'button') &&
+            (text === '云玩' || text === '立即体验' || text === '云试玩'));
+        if (hit) {
           e.preventDefault();
           e.stopPropagation();
           window.location.href = '/web-cloud-game/play/' + m[1];
@@ -353,6 +358,125 @@ export const WEB_CHROME_SCRIPT: string = `
       }
     } catch (err) { }
   }, true);
+})();
+;(function () {
+  // 游戏工具箱修复：/tools 页工具项点击时——
+  // ① taptap:// 开头的 uri 直接弹"请前往 TapTap 客户端使用"（壳内死路）；
+  // ② 其余走 window.open(url,"_blank")，壳的 WebView 未开启多窗口，静默失效。
+  // 修复：
+  //  A. 拦截 game-tool 接口响应，把 taptap:// 深链还原成等价 https 链接写回 web_url；
+  //  B. 在 TapTap 站点内把 window.open 改写为当前窗口导航（多窗口不可用时的通用兜底，
+  //     同时修复工具箱、侧栏外链等所有 _blank 点击无响应的问题）。
+  if ((location.hostname || '').indexOf('taptap') < 0) { return; }
+  if (window.__ttwToolsFixInstalled) { return; }
+  window.__ttwToolsFixInstalled = 1;
+
+  function ttwIsToolApi(u) {
+    return (u || '').indexOf('/game-tool/v1/all-tools') >= 0 ||
+      (u || '').indexOf('/game-tool/v1/app-tools') >= 0;
+  }
+
+  function ttwFixTool(t) {
+    if (!t || typeof t !== 'object') { return; }
+    var u = String(t.web_url || t.uri || '');
+    if (!u || u.indexOf('http') === 0) { return; }
+    if (u.indexOf('taptap://') !== 0) { return; }
+    var m = u.match(/[?&]url=([^&]+)/);
+    if (m) {
+      try {
+        var dec = decodeURIComponent(m[1]);
+        if (dec.indexOf('http') === 0) { t.web_url = dec; return; }
+      } catch (e1) { }
+    }
+    var a = u.match(/[?&]app_id=(\\d+)/);
+    if (a) { t.web_url = 'https://www.taptap.cn/app/' + a[1]; return; }
+    var p = u.match(/[?&]path=([^&]+)/);
+    if (p) {
+      try {
+        var path = decodeURIComponent(p[1]);
+        if (path.indexOf('/') === 0) { t.web_url = 'https://www.taptap.cn' + path; return; }
+      } catch (e2) { }
+    }
+  }
+
+  function ttwRewriteToolsJson(txt) {
+    try {
+      var d = JSON.parse(txt);
+      var roots = [d, d && d.data];
+      for (var i = 0; i < roots.length; i++) {
+        var arr = roots[i] && roots[i].tools;
+        if (arr && arr.length) {
+          for (var j = 0; j < arr.length; j++) { ttwFixTool(arr[j]); }
+        }
+      }
+      return JSON.stringify(d);
+    } catch (e) { return txt; }
+  }
+
+  // A. 响应改写：fetch
+  try {
+    var ttwOrigFetch = window.fetch;
+    if (ttwOrigFetch) {
+      window.fetch = function (input) {
+        var u = '';
+        try { u = (typeof input === 'string') ? input : (input && input.url) || ''; } catch (e0) { }
+        var pr = ttwOrigFetch.apply(this, arguments);
+        if (u && ttwIsToolApi(u)) {
+          return pr.then(function (res) {
+            try {
+              return res.clone().text().then(function (t) {
+                return new Response(ttwRewriteToolsJson(t), { status: res.status, statusText: res.statusText, headers: res.headers });
+              });
+            } catch (e1) { return res; }
+          });
+        }
+        return pr;
+      };
+    }
+  } catch (e) { }
+  // A. 响应改写：XHR
+  try {
+    var ttwOrigOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function (m, u) {
+      try { this.__ttwUrl = String(u || ''); } catch (e0) { }
+      return ttwOrigOpen.apply(this, arguments);
+    };
+    var ttwOrigSend = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.send = function () {
+      var xhr = this;
+      if (xhr.__ttwUrl && ttwIsToolApi(xhr.__ttwUrl)) {
+        var props = ['responseText', 'response'];
+        for (var k = 0; k < props.length; k++) {
+          (function (prop) {
+            try {
+              var desc = Object.getOwnPropertyDescriptor(XMLHttpRequest.prototype, prop);
+              if (!desc || !desc.get) { return; }
+              Object.defineProperty(xhr, prop, {
+                get: function () {
+                  var v = desc.get.call(xhr);
+                  return (typeof v === 'string' && v.charAt(0) === '{') ? ttwRewriteToolsJson(v) : v;
+                },
+                configurable: true
+              });
+            } catch (e1) { }
+          })(props[k]);
+        }
+      }
+      return ttwOrigSend.apply(this, arguments);
+    };
+  } catch (e) { }
+  // B. window.open → 当前窗口导航（仅 TapTap 站内）
+  try {
+    window.open = function (u) {
+      try {
+        var t = String(u || '');
+        if (t.indexOf('http') === 0 || t.indexOf('/') === 0) {
+          window.location.href = t;
+        }
+      } catch (e0) { }
+      return null;
+    };
+  } catch (e) { }
 })();
 //# sourceURL=ttw-web-chrome.js
 `;
