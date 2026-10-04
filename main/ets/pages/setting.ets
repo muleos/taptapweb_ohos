@@ -17,7 +17,7 @@ let resourceDir = context_index.resourceDir;
 @Component
 struct Index {
   @State home_url: string = ''
-  @State saved_home_url: string = resourceDir + "/nasnav.html";
+  @State saved_home_url: string = 'https://www.taptap.cn/';
   @State c_pg_ua: string =
     'Mozilla/5.0 (Linux; Android 8.0.0; SM-G955U Build/R16NW) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36 HarveyHarmonyOS/1.0.0';
   @State isLSRefresh: string = 'true'; //是否横屏不能刷新

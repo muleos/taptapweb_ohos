@@ -1,6 +1,6 @@
 import { webview } from '@kit.ArkWeb';
 import { promptAction, window, display, prompt } from '@kit.ArkUI';
-import { common } from '@kit.AbilityKit';
+import { common, Want, OpenLinkOptions } from '@kit.AbilityKit';
 import util from '@ohos.util';
 import {
   saveHomeUrl,
@@ -18,7 +18,9 @@ import {
   getIsfull,
   saveIsfull,
   getSlidenum,
-  saveSlidenum
+  saveSlidenum,
+  saveWebDarkMode,
+  getWebDarkMode
 } from '../model/StorageService';
 import { DownloadConfirmDialog } from '../component/DownloadConfirmDialog'
 import { IAbstractDownloadHandler } from '../delegate/IWebDownloadFile'
@@ -224,7 +226,7 @@ struct Index {
   @State showDialog: boolean = false;
   //home_url = "http://nas2.smder.com:3002"
   @State home_url: string = ''
-  @State saved_home_url: string = resourceDir + "/nasnav.html";
+  @State saved_home_url: string = 'https://www.taptap.cn/';
   @State c_pg_ua: string = '';
   @State c_ua_temp: string = '';
   @State ua_type: string = 'Mobile';
@@ -242,6 +244,7 @@ struct Index {
   @State isHidestatus: string = 'false';
   @State isFull: string = 'true';
   @State slide_num: number = 0.3;
+  @State webDark: string = 'auto'; // 'auto'=跟随系统深浅色, 'dark'=强制深色
 
 
 
@@ -320,6 +323,7 @@ struct Index {
     this.ua_type = (await getUserAgentType() || this.ua_type);
     this.isFull = (await getIsfull() || this.isFull);
     this.slide_num = (await getSlidenum() || this.slide_num);
+    this.webDark = (await getWebDarkMode() || this.webDark);
     // 开启预连接需要先使用上述方法预加载WebView内核。
     //webview.WebviewController.initializeWebEngine();
     // 启动预连接，连接地址为即将打开的网址。
@@ -431,7 +435,7 @@ struct Index {
         .height(40)
         .width("100%")
         .alignItems(VerticalAlign.Center)
-        .backgroundColor(Color.Pink)
+        .backgroundColor('#F5F6F7')
         .justifyContent(FlexAlign.SpaceAround)
       }
     }
@@ -503,7 +507,21 @@ struct Index {
               .fileAccess(true)
               .mediaPlayGestureAccess(true)
               .mixedMode(MixedMode.Compatible)
-              .darkMode(WebDarkMode.Auto)
+              .darkMode(this.webDark === 'dark' ? WebDarkMode.On : WebDarkMode.Auto)
+              .forceDarkAccess(this.webDark === 'dark')
+              .onLoadIntercept((event) => {
+                // 拦截非网页协议的跳转，交给系统/外部应用打开（如 taptap:// 等应用深链）
+                if (event && event.data) {
+                  const url: string = event.data.getRequestURL() || '';
+                  const scheme: string = url.split(':')[0]?.toLowerCase() || '';
+                  const webSchemes: string[] = ['http', 'https', 'file', 'about', 'data', 'blob', 'javascript'];
+                  if (scheme !== '' && !webSchemes.includes(scheme)) {
+                    this.openExternalApp(url);
+                    return true; // 拦截，不让 WebView 自己加载
+                  }
+                }
+                return false;
+              })
 
           }
           .width("100%")
@@ -513,7 +531,7 @@ struct Index {
 
       }
       .pullDownRatio(this.slide_num * this.isdrag)
-      .backgroundColor(Color.Pink)
+      .backgroundColor('#F5F6F7')
       .onRefreshing(() => this.onRefreshing())
       .onSizeChange(() => {
         window.getLastWindow(this.getUIContext().getHostContext(), (err, win) => {
@@ -806,6 +824,25 @@ struct Index {
 
 
           Row() {
+            Text("强制深色模式")
+              .width("35%")
+              .height(32)
+            Text()
+              .width('50%')
+            Toggle({
+              type: ToggleType.Switch,
+              isOn: this.get_isWebDark()
+            })
+              .width('15%')
+              .height(25)
+              .onChange((isOn: boolean) => {
+                this.webDark = isOn ? 'dark' : 'auto';
+                saveWebDarkMode(this.webDark);
+                this.refreshWeb();
+              })
+          }
+
+          Row() {
             Text("下拉灵敏度")
               .width("30%")
               .height(32)
@@ -836,7 +873,7 @@ struct Index {
             .height(30)
 
           Row() {
-            Text("Version:1.0.6")
+            Text("Version:1.1.0")
               .width('100%')
               .textAlign(TextAlign.Center)
           }
@@ -863,7 +900,7 @@ struct Index {
         .width("90%")
         //.height("70%")
         .padding(20)
-        .backgroundColor(Color.Pink)
+        .backgroundColor('#F5F6F7')
         .borderRadius($r('sys.float.corner_radius_level8'))
       }
       .width("100%")
@@ -941,6 +978,31 @@ struct Index {
   backToHome() {
     // 这里可以改为你的首页路由
     this.controller.loadUrl(this.saved_home_url);
+  }
+
+  // 用系统/外部应用打开非网页协议链接（如应用深链 taptap:// 等）
+  async openExternalApp(url: string) {
+    const uiContext = getContext(this) as common.UIAbilityContext;
+    try {
+      // 优先走系统链接分发（Deep Linking / App Linking），可拉起注册了该协议的应用
+      let linkOptions: OpenLinkOptions = { appLinkingOnly: false };
+      await uiContext.openLink(url, linkOptions);
+    } catch (e) {
+      // 兜底：显式构造 Want 拉起
+      try {
+        let want: Want = {
+          action: 'ohos.want.action.viewData',
+          uri: url
+        };
+        await uiContext.startAbility(want);
+      } catch (err) {
+        promptAction.showToast({ message: '未找到可以打开此链接的应用' });
+      }
+    }
+  }
+
+  get_isWebDark(): boolean {
+    return this.webDark === 'dark';
   }
 
   get_isLSRefresh() {

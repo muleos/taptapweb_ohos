@@ -97,3 +97,14 @@ export async function getSlidenum(): Promise<number> {
   return Number(await store.get('slide_num', 0));
 }
 
+export async function saveWebDarkMode(mode: string) {
+  const store = await getPreferences();
+  await store.put('web_dark_mode', mode);
+  await store.flush(); // 刷新保存
+}
+
+export async function getWebDarkMode(): Promise<string> {
+  const store = await getPreferences();
+  return String(await store.get('web_dark_mode', ''));
+}
+

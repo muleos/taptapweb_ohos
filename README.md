@@ -1,34 +1,23 @@
-NAS导航（鸿蒙HAP应用）
-# nas_nav_hormony
-鸿蒙网页封装，把网页当独立应用使用。
+# TapTapWeb
 
-用下面邀请测试安装，源码和Release还没更新
-邀请测试：
-[https://appgallery.huawei.com/link/invite-test-wap?taskId=2e3957cb4de4dac089a99906ffe21996](https://appgallery.huawei.com/link/invite-test-wap?taskId=b47e1a5a6eba48a18ab72e233aeb3509&invitationCode=6nilwwowYpz)
+鸿蒙网页封装（原 nas_nav_hormony），把 TapTap 网页当独立应用使用。
 
-https://appgallery.huawei.com/apptest/3KMy4RBWMDe
+- 主页地址：https://www.taptap.cn/（可在应用内下拉修改为任意网址）
+- 包名：com.hmos.taptapweb
+- 应用名：TapTapWeb
 
-极简，速度快，适合用于sun-pannel,emby之类的网页应用。比原生浏览器流畅，全屏没有按钮，可当成APP来使用。
+## 功能
 
-安装：用小白安装
+1. 下拉点设置按钮，填写主页地址，点保存即可。
+2. 下拉默认为刷新及功能按钮（3秒缩回）。
+3. 侧滑返回上一页。
+4. 网页深浅色模式自动适配系统；设置中可打开"强制深色模式"。
+5. 网页内跳转第三方应用链接（如 taptap:// 等应用深链）时自动拉起对应外部应用；未安装时提示。
+6. 可以最多开启5个分身。
+7. 其它的自行摸索。
 
-使用说明：
+## 构建
 
-1、下拉点设置按钮，填写主页地址，点保存即可。
+本地 AppScope/app.json5 已声明 bundleName `com.hmos.taptapweb`；若使用自有工程外壳，请把 bundleName 同步改为 `com.hmos.taptapweb`。
 
-2、下拉默认为刷新及功能按钮（3秒缩回）。
-
-3、侧滑返回上一页
-
-4、可设置横屏时不能下拉刷新：在emby播放时可以左右两边上下滑动调节亮度和音量（使用Custom Css and JavaScript插件，代码见:emby滑动手势.txt）
-
-5、可以最多开启5个分身
-
-6、其它的自行摸索
-
-
-![screenshot_20260108_024309](https://github.com/user-attachments/assets/e68609c6-f6aa-4fe3-b3cf-af557d0b2f53)
-
-![screenshot_20260108_024313](https://github.com/user-attachments/assets/664fadef-7fe8-468c-a357-4613923ba68f)
-
-![screenshot_20260108_024323](https://github.com/user-attachments/assets/b3e616f2-aaec-4c98-b166-3f41119c65b8)
+安装：用小白安装。
