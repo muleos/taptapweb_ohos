@@ -108,3 +108,13 @@ export async function getWebDarkMode(): Promise<string> {
   return String(await store.get('web_dark_mode', ''));
 }
 
+export async function saveFakeAppUa(v: string) {
+  const store = await getPreferences();
+  await store.put('fake_app_ua', v);
+  await store.flush();
+}
+
+export async function getFakeAppUa(): Promise<string> {
+  const store = await getPreferences();
+  return String(await store.get('fake_app_ua', ''));
+}

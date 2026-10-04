@@ -158,5 +158,67 @@ export const WEB_CHROME_SCRIPT: string = `
   setInterval(scheduleTheme, 2000);
   scheduleTheme();
 })();
+;(function () {
+  // 伪装 TapTap 客户端时（UA 含 TapTap）隐藏"打开 TapTap 客户端"类引导按钮
+  if ((navigator.userAgent || '').indexOf('TapTap') < 0) { return; }
+  if (window.__ttwPromoHideInstalled) { return; }
+  window.__ttwPromoHideInstalled = 1;
+
+  function hideUp(el) {
+    try {
+      var target = null;
+      var p = el;
+      var hops = 0;
+      while (p && hops < 6) {
+        var cs = window.getComputedStyle(p);
+        if (cs && (cs.position === 'fixed' || cs.position === 'absolute')) { target = p; }
+        p = p.parentElement;
+        hops++;
+      }
+      if (!target) { target = el; }
+      target.style.setProperty('display', 'none', 'important');
+      target.setAttribute('data-ttw-hidden', '1');
+    } catch (e) { }
+  }
+
+  function isTaptapHost() {
+    return (location.hostname || '').indexOf('taptap') >= 0;
+  }
+
+  function hideTaptapPromos() {
+    if (!isTaptapHost()) { return; }
+    try {
+      var all = document.querySelectorAll('div,a,button,span,section,footer,header,aside');
+      for (var i = 0; i < all.length; i++) {
+        var el = all[i];
+        if (!el || el.getAttribute('data-ttw-hidden')) { continue; }
+        var text = (el.textContent || '').replace(/\\s+/g, '');
+        if (!text || text.length > 30) { continue; }
+        if (text.indexOf('打开TapTap') >= 0 || text.indexOf('TapTap内打开') >= 0 ||
+            text === 'App内打开' || text === '打开App') {
+          hideUp(el);
+          continue;
+        }
+        if ((text === '下载App' || text === '下载APP') && el.children.length <= 3) {
+          hideUp(el);
+        }
+      }
+    } catch (e) { }
+  }
+
+  var hideTimer = null;
+  function scheduleHide() {
+    if (hideTimer) { return; }
+    hideTimer = setTimeout(function () { hideTimer = null; hideTaptapPromos(); }, 400);
+  }
+
+  try {
+    new MutationObserver(scheduleHide).observe(document.documentElement, { childList: true, subtree: true });
+  } catch (e) { }
+  window.addEventListener('load', scheduleHide);
+  window.addEventListener('pageshow', scheduleHide);
+  setInterval(hideTaptapPromos, 1500);
+  scheduleHide();
+})();
 //# sourceURL=ttw-web-chrome.js
 `;

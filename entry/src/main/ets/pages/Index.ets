@@ -20,7 +20,9 @@ import {
   getSlidenum,
   saveSlidenum,
   saveWebDarkMode,
-  getWebDarkMode
+  getWebDarkMode,
+  saveFakeAppUa,
+  getFakeAppUa
 } from '../model/StorageService';
 import { DownloadConfirmDialog } from '../component/DownloadConfirmDialog'
 import { IAbstractDownloadHandler } from '../delegate/IWebDownloadFile'
@@ -235,6 +237,7 @@ struct Index {
   @State c_pg_ua: string = '';
   @State c_ua_temp: string = '';
   @State ua_type: string = 'Mobile';
+  @State fakeAppUa: string = 'true'; // 伪装 TapTap 客户端 UA
   @State userAgent: string = '';
   @State ua_device: string = '';
   @State showTopRow: boolean = false;
@@ -370,6 +373,7 @@ struct Index {
     this.isHidebar = (await getIshidebar() || this.isHidebar);
     this.isHidestatus = (await getIshidestatus() || this.isHidestatus);
     this.ua_type = (await getUserAgentType() || this.ua_type);
+    this.fakeAppUa = (await getFakeAppUa() || this.fakeAppUa);
     this.isFull = (await getIsfull() || this.isFull);
     this.slide_num = (await getSlidenum() || this.slide_num);
     this.webDark = (await getWebDarkMode() || this.webDark);
@@ -934,6 +938,27 @@ struct Index {
           }
 
           Row() {
+            Text("伪装 TapTap 客户端")
+              .fontColor($r('app.color.dialog_text'))
+              .width("35%")
+              .height(32)
+            Text()
+              .width('50%')
+            Toggle({
+              type: ToggleType.Switch,
+              isOn: this.fakeAppUa === 'true'
+            })
+              .width('15%')
+              .height(25)
+              .onChange((isOn: boolean) => {
+                this.fakeAppUa = isOn ? 'true' : 'false';
+                saveFakeAppUa(this.fakeAppUa);
+                this.change_userAgent();
+                this.refreshWeb();
+              })
+          }
+
+          Row() {
             Text("下拉灵敏度")
               .fontColor($r('app.color.dialog_text'))
               .width("30%")
@@ -965,7 +990,7 @@ struct Index {
             .height(30)
 
           Row() {
-            Text("Version:1.2.8")
+            Text("Version:1.2.9")
               .fontColor($r('app.color.dialog_text_secondary'))
               .width('100%')
               .textAlign(TextAlign.Center)
@@ -1400,7 +1425,10 @@ struct Index {
     if (this.ua_type == 'custom') {
       this.userAgent = custom_userAgent;
     }
-    //this.c_pg_ua =this.userAgent;
+    // 伪装 TapTap 客户端：Mobile UA 附加 TapTap 标识，网页据此判定为 App 内环境（可领签到奖励等）
+    if (this.fakeAppUa === 'true' && this.ua_type === 'Mobile' && this.userAgent.indexOf('TapTap/') < 0) {
+      this.userAgent = this.userAgent + ' TapTap/2.83.0-rel_1000';
+    }
     this.controller.setCustomUserAgent(this.userAgent);
   }
 }
