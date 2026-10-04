@@ -1,7 +1,7 @@
 /**
  * WebChromeScript.ets
  * 注入到每个页面 document-start 的 JS：
- * 沉浸式取色探针：采样页面顶部/主题色，经 console 上报给原生（__TTW_CHROME__）
+ * 沉浸式取色探针：采样页面顶部/底部背景色，经 console 上报给原生（__TTW_CHROME__）
  * 参考实现：aira-browser HostedWebNode 页面主题探针
  */
 
@@ -12,6 +12,7 @@ export const WEB_CHROME_SCRIPT: string = `
 
   /* ---------------- 取色探针 ---------------- */
   var lastBg = '';
+  var lastBbg = '';
 
   function toHex(value) {
     var normalized = String(value || '').trim();
@@ -80,12 +81,39 @@ export const WEB_CHROME_SCRIPT: string = `
     return '';
   }
 
+  function sampleBottomBackground() {
+    try {
+      var vw = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 1);
+      var vh = Math.max(document.documentElement.clientHeight || 0, window.innerHeight || 1);
+      var stack = document.elementsFromPoint ? document.elementsFromPoint(vw / 2, vh - 10) : [];
+      var candidates = stack.slice(0, 8);
+      candidates.push(document.body, document.documentElement);
+      for (var j = 0; j < candidates.length; j++) {
+        var el = candidates[j];
+        var hops = 0;
+        while (el && hops < 6) {
+          var cs = window.getComputedStyle(el);
+          var bg = cs.backgroundColor;
+          if (bg && cssAlpha(bg) >= 0.5) {
+            var resolved = toHex(bg);
+            if (resolved) { return resolved; }
+          }
+          el = el.parentElement;
+          hops++;
+        }
+      }
+    } catch (e) { }
+    return '';
+  }
+
   function sendTheme() {
     try {
       var bg = sampleTopBackground();
-      if (!bg || bg === lastBg) { return; }
-      lastBg = bg;
-      console.info('__TTW_CHROME__' + JSON.stringify({ bg: bg }));
+      var bbg = sampleBottomBackground();
+      if ((!bg || bg === lastBg) && (!bbg || bbg === lastBbg)) { return; }
+      if (bg && bg !== lastBg) { lastBg = bg; }
+      if (bbg && bbg !== lastBbg) { lastBbg = bbg; }
+      console.info('__TTW_CHROME__' + JSON.stringify({ bg: bg, bbg: bbg }));
     } catch (e) { }
   }
 

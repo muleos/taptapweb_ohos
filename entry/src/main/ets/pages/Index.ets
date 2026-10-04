@@ -253,7 +253,8 @@ struct Index {
   @State sysDarkOn: boolean = false; // 系统当前是否深色（强制深色按钮跟随系统深浅色切换）
   // 沉浸式：状态栏高度留白(px->vp)，供下拉顶栏避开状态栏
   @State safeTopVp: number = 0;
-  private lastImmersiveBg: string = '';
+  private lastTopBg: string = '';
+  private lastBottomBg: string = '';
   // 长按上下文菜单（图片/视频）
   @State ctxVisible: boolean = false;
   @State ctxX: number = 0;
@@ -336,7 +337,7 @@ struct Index {
       // 强制深色按钮跟随系统深浅色切换：记录系统当前是否深色
       const mode = event?.data as number;
       this.sysDarkOn = mode === (ConfigurationConstant.ColorMode.COLOR_MODE_DARK as number);
-      this.applyImmersiveTheme(this.lastImmersiveBg, true);
+      this.applyImmersiveTheme(this.lastTopBg, this.lastBottomBg, true);
     });
     // 网页缓存管理：记录最后使用时间；超过 7 天未使用，启动时自动清除缓存
     preferences.getPreferences(context_index, 'ttw_web_cache').then((pref) => {
@@ -577,7 +578,7 @@ struct Index {
                   if (msg.indexOf('__TTW_CHROME__') === 0) {
                     try {
                       const payload = JSON.parse(msg.substring('__TTW_CHROME__'.length)) as Record<string, string>;
-                      this.applyImmersiveTheme(payload.bg || '');
+                      this.applyImmersiveTheme(payload.bg || '', payload.bbg || '');
                     } catch (err) {
                     }
                   }
@@ -926,8 +927,9 @@ struct Index {
               .onChange((isOn: boolean) => {
                 this.webDark = isOn ? 'dark' : 'auto';
                 saveWebDarkMode(this.webDark);
-                this.lastImmersiveBg = '';
-                this.applyImmersiveTheme(this.lastImmersiveBg, true);
+                this.lastTopBg = '';
+                this.lastBottomBg = '';
+                this.applyImmersiveTheme('', '', true);
                 this.refreshWeb();
               })
           }
@@ -964,7 +966,7 @@ struct Index {
             .height(30)
 
           Row() {
-            Text("Version:1.2.3")
+            Text("Version:1.2.4")
               .fontColor($r('app.color.dialog_text_secondary'))
               .width('100%')
               .textAlign(TextAlign.Center)
@@ -1230,35 +1232,30 @@ struct Index {
     return false;
   }
 
-  /** 系统栏样式：全屏时顶栏(状态栏)恒#1B1C21（浅色同深色）；非全屏时小白条(导航栏)恒#161920 */
-  private async updateSystemBarStyle(pageBg: string = ''): Promise<void> {
+  /** 亮度判断：true=浅色背景（用深色图标） */
+  private lumLight(hex: string): boolean {
+    const r = parseInt(hex.substring(1, 3), 16);
+    const g = parseInt(hex.substring(3, 5), 16);
+    const b = parseInt(hex.substring(5, 7), 16);
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6;
+  }
+
+  /** 系统栏样式：顶栏/底栏背景取页面采样色（全屏/非全屏均不固定），无采样时按深浅色兜底 */
+  private async updateSystemBarStyle(topBg: string = '', bottomBg: string = ''): Promise<void> {
     try {
       const win = await window.getLastWindow(context_index);
       const dark = this.isDarkModeNow();
-      const full = this.isFull === 'true';
-      let statusBarColor = '#00000000';
-      let navigationBarColor = '#00000000';
-      let statusContent = '#FF000000';
-      let navContent = '#FF000000';
-      if (full) {
-        // 全屏：顶栏浅色模式同深色模式，恒 #1B1C21；底栏深色 #161920、浅色透明沉浸
-        statusBarColor = '#FF1B1C21';
-        statusContent = '#FFFFFFFF';
-        navigationBarColor = dark ? '#FF161920' : '#00000000';
-        navContent = dark ? '#FFFFFFFF' : '#FF000000';
-      } else {
-        // 非全屏：小白条(导航栏)恒 #161920；顶栏深色 #1B1C21、浅色透明取色
-        navigationBarColor = '#FF161920';
-        navContent = '#FFFFFFFF';
-        if (dark) {
-          statusBarColor = '#FF1B1C21';
-          statusContent = '#FFFFFFFF';
-        } else if (pageBg) {
-          const r = parseInt(pageBg.substr(1, 2), 16);
-          const g = parseInt(pageBg.substr(3, 2), 16);
-          const b = parseInt(pageBg.substr(5, 2), 16);
-          statusContent = (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6 ? '#FF000000' : '#FFFFFFFF';
-        }
+      let statusBarColor = dark ? '#FF1B1C21' : '#00000000';
+      let statusContent = dark ? '#FFFFFFFF' : '#FF000000';
+      let navigationBarColor = dark ? '#FF161920' : '#00000000';
+      let navContent = '#FFFFFFFF';
+      if (/^#[0-9a-fA-F]{6}$/.test(topBg)) {
+        statusBarColor = '#FF' + topBg.substring(1);
+        statusContent = this.lumLight(topBg) ? '#FF000000' : '#FFFFFFFF';
+      }
+      if (/^#[0-9a-fA-F]{6}$/.test(bottomBg)) {
+        navigationBarColor = '#FF' + bottomBg.substring(1);
+        navContent = this.lumLight(bottomBg) ? '#FF000000' : '#FFFFFFFF';
       }
       win.setWindowSystemBarProperties({
         statusBarColor: statusBarColor,
@@ -1271,15 +1268,18 @@ struct Index {
     }
   }
 
-  /** 沉浸式取色：按页面背景色调整系统栏内容色（参考 aira-browser BrowserStatusBarStyleService） */
-  async applyImmersiveTheme(bg: string, force: boolean = false): Promise<void> {
-    if (!force && (!bg || bg === this.lastImmersiveBg)) {
+  /** 沉浸式取色：顶栏/底栏背景取页面色（不固定），图标按亮度自适应 */
+  async applyImmersiveTheme(topBg: string, bottomBg: string = '', force: boolean = false): Promise<void> {
+    if (!force && (!topBg || (topBg === this.lastTopBg && bottomBg === this.lastBottomBg))) {
       return;
     }
-    if (!force) {
-      this.lastImmersiveBg = bg;
+    if (topBg) {
+      this.lastTopBg = topBg;
     }
-    await this.updateSystemBarStyle(bg);
+    if (bottomBg) {
+      this.lastBottomBg = bottomBg;
+    }
+    await this.updateSystemBarStyle(this.lastTopBg, this.lastBottomBg);
   }
 
   get_isLSRefresh() {
