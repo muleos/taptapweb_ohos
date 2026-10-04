@@ -26,6 +26,8 @@ import { DownloadConfirmDialog } from '../component/DownloadConfirmDialog'
 import { IAbstractDownloadHandler } from '../delegate/IWebDownloadFile'
 import { WebDownloadFileHelper } from '../delegate/WebDownloadFileImpl'
 import { EmitterUtil } from '../utiles/EmitterUtil'
+import { WEB_CHROME_SCRIPT } from '../utiles/WebChromeScript'
+import { WebImageSaver } from '../services/WebImageSaver'
 import { http } from '@kit.NetworkKit';
 import { fileIo as fs, ReadOptions, WriteOptions } from '@kit.CoreFileKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
@@ -245,6 +247,15 @@ struct Index {
   @State isFull: string = 'true';
   @State slide_num: number = 0.3;
   @State webDark: string = 'auto'; // 'auto'=跟随系统深浅色, 'dark'=强制深色
+  // 沉浸式：状态栏高度留白(px->vp)，供下拉顶栏避开状态栏
+  @State safeTopVp: number = 0;
+  private lastImmersiveBg: string = '';
+  // 长按上下文菜单（图片/视频）
+  @State ctxVisible: boolean = false;
+  @State ctxX: number = 0;
+  @State ctxY: number = 0;
+  @State ctxItems: string[] = [];
+  private ctxUrl: string = '';
 
 
 
@@ -303,6 +314,23 @@ struct Index {
 
         }
       }
+    }
+    // 沉浸式：系统栏背景全透明，露出页面内容；内容色由取色探针动态调整
+    try {
+      await windowClass.setWindowSystemBarProperties({
+        statusBarColor: '#00000000',
+        navigationBarColor: '#00000000',
+        statusBarContentColor: '#FF000000',
+        isStatusBarLightIcon: false
+      });
+    } catch (err) {
+    }
+    // 计算状态栏高度留白（下拉顶栏避开状态栏）
+    try {
+      const area = windowClass.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
+      this.safeTopVp = px2vp(area.boundingRect.top);
+    } catch (err) {
+      this.safeTopVp = 0;
     }
   }
 
@@ -438,6 +466,7 @@ struct Index {
         .backgroundColor('#F5F6F7')
         .justifyContent(FlexAlign.SpaceAround)
       }
+      .padding({ top: this.safeTopVp })
     }
 
   }
@@ -509,6 +538,24 @@ struct Index {
               .mixedMode(MixedMode.Compatible)
               .darkMode(this.webDark === 'dark' ? WebDarkMode.On : WebDarkMode.Auto)
               .forceDarkAccess(this.webDark === 'dark')
+              .javaScriptOnDocumentStart([{ script: WEB_CHROME_SCRIPT, scriptRules: ['*'] }])
+              .onConsole((event) => {
+                // 沉浸式取色桥：页面探针经 console 上报主题背景色
+                if (event && event.message) {
+                  const msg: string = event.message.getMessage() || '';
+                  if (msg.indexOf('__TTW_CHROME__') === 0) {
+                    try {
+                      const payload = JSON.parse(msg.substring('__TTW_CHROME__'.length)) as Record<string, string>;
+                      this.applyImmersiveTheme(payload.bg || '');
+                    } catch (err) {
+                    }
+                  }
+                }
+                return false;
+              })
+              .onContextMenuShow((event) => {
+                return this.handleWebContextMenu(event);
+              })
               .onLoadIntercept((event) => {
                 // 拦截非网页协议的跳转，交给系统/外部应用打开（如 taptap:// 等应用深链）
                 if (event && event.data) {
@@ -838,6 +885,7 @@ struct Index {
               .onChange((isOn: boolean) => {
                 this.webDark = isOn ? 'dark' : 'auto';
                 saveWebDarkMode(this.webDark);
+                this.lastImmersiveBg = '';
                 this.refreshWeb();
               })
           }
@@ -873,7 +921,7 @@ struct Index {
             .height(30)
 
           Row() {
-            Text("Version:1.1.0")
+            Text("Version:1.2.0")
               .width('100%')
               .textAlign(TextAlign.Center)
           }
@@ -908,6 +956,42 @@ struct Index {
       .justifyContent(FlexAlign.Center)
       .backgroundColor(Color.Transparent)
       .visibility(this.showSetting ? Visibility.Visible : Visibility.None)
+
+      // 长按菜单点击遮罩（点击空白关闭）
+      if (this.ctxVisible) {
+        Column()
+          .width('100%')
+          .height('100%')
+          .onClick(() => {
+            this.ctxVisible = false;
+          })
+      }
+
+      // 长按图片/视频 自绘上下文菜单（参考 aira-browser 自绘 overlay 方案）
+      if (this.ctxVisible) {
+        Column() {
+          ForEach(this.ctxItems, (item: string) => {
+            Text(item)
+              .fontSize(15)
+              .fontColor('#1A1A1A')
+              .height(44)
+              .width(170)
+              .textAlign(TextAlign.Center)
+              .onClick(() => {
+                this.onCtxItem(item);
+              })
+            if (item !== this.ctxItems[this.ctxItems.length - 1]) {
+              Divider()
+                .color('#EEEEEE')
+                .width(150)
+            }
+          }, (item: string) => item)
+        }
+        .backgroundColor('#FFFFFF')
+        .borderRadius(12)
+        .shadow({ radius: 16, color: '#26000000' })
+        .position({ x: this.ctxX, y: this.ctxY })
+      }
 
     }
     .height('100%')
@@ -1003,6 +1087,122 @@ struct Index {
 
   get_isWebDark(): boolean {
     return this.webDark === 'dark';
+  }
+
+  /** 长按网页图片/视频 -> 接管系统菜单，弹自绘菜单（移植自 aira-browser 长按上下文菜单方案） */
+  handleWebContextMenu(event: ContextMenuShowEvent): boolean {
+    try {
+      if (!event || !event.param) {
+        return false;
+      }
+      const param = event.param;
+      let mediaType: number = -1;
+      try {
+        const mediaParam = param as object as Record<string, () => number>;
+        if (typeof mediaParam['getMediaType'] === 'function') {
+          mediaType = Number(mediaParam['getMediaType']());
+        }
+      } catch (err) {
+        mediaType = -1;
+      }
+      let sourceUrl: string = '';
+      try {
+        sourceUrl = param.getSourceUrl() || '';
+      } catch (err) {
+        sourceUrl = '';
+      }
+      let xPx: number = 0;
+      let yPx: number = 0;
+      try {
+        xPx = Number(param.x());
+        yPx = Number(param.y());
+      } catch (err) {
+        xPx = 0;
+        yPx = 0;
+      }
+      // 图片/视频之外的（纯文本、普通区域）走系统默认
+      if (mediaType !== 1 && mediaType !== 2 && mediaType !== 3) {
+        return false;
+      }
+      if (!sourceUrl) {
+        return false;
+      }
+      this.ctxUrl = sourceUrl;
+      if (mediaType === 1) {
+        this.ctxItems = ['保存图片', '复制图片链接'];
+      } else {
+        this.ctxItems = ['复制视频链接', '其他应用打开'];
+      }
+      // 坐标 px -> vp，并夹在屏幕内（菜单约 170vp 宽）
+      const screenWVp: number = px2vp(display.getDefaultDisplaySync().width);
+      const screenHVp: number = px2vp(display.getDefaultDisplaySync().height);
+      this.ctxX = Math.min(Math.max(px2vp(xPx), 8), Math.max(screenWVp - 178, 8));
+      this.ctxY = Math.min(Math.max(px2vp(yPx), 8), Math.max(screenHVp - 140, 8));
+      if (event.result) {
+        try {
+          event.result.closeContextMenu();
+        } catch (err) {
+        }
+      }
+      this.ctxVisible = true;
+      return true;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  onCtxItem(item: string): void {
+    this.ctxVisible = false;
+    const url = this.ctxUrl;
+    if (item === '保存图片') {
+      let cookie: string = '';
+      try {
+        cookie = webview.WebCookieManager.fetchCookieSync(url) || '';
+      } catch (err) {
+        cookie = '';
+      }
+      let pageUrl: string = '';
+      try {
+        pageUrl = this.controller.getUrl() || '';
+      } catch (err) {
+        pageUrl = '';
+      }
+      WebImageSaver.saveToGallery(context_index, url, pageUrl, cookie, this.userAgent);
+    } else if (item === '复制图片链接' || item === '复制视频链接') {
+      WebImageSaver.copyText(url, '已复制链接');
+    } else if (item === '其他应用打开') {
+      this.openExternalApp(url);
+    }
+  }
+
+  /** 沉浸式取色：按页面背景色调整系统栏内容色（参考 aira-browser BrowserStatusBarStyleService） */
+  async applyImmersiveTheme(bg: string): Promise<void> {
+    if (!bg || bg === this.lastImmersiveBg) {
+      return;
+    }
+    this.lastImmersiveBg = bg;
+    try {
+      const win = await window.getLastWindow(context_index);
+      let content = '#FF000000';
+      if (this.webDark === 'dark') {
+        // 强制深色：页面视觉为深色，图标用浅色
+        content = '#FFFFFFFF';
+      } else {
+        const r = parseInt(bg.substr(1, 2), 16);
+        const g = parseInt(bg.substr(3, 2), 16);
+        const b = parseInt(bg.substr(5, 2), 16);
+        const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+        content = lum > 0.6 ? '#FF000000' : '#FFFFFFFF';
+      }
+      win.setWindowSystemBarProperties({
+        statusBarColor: '#00000000',
+        navigationBarColor: '#00000000',
+        statusBarContentColor: content,
+        navigationBarContentColor: content,
+        isStatusBarLightIcon: content === '#FFFFFFFF'
+      });
+    } catch (err) {
+    }
   }
 
   get_isLSRefresh() {
