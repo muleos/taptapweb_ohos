@@ -295,7 +295,9 @@ struct Index {
     } else {
       if (is_hidestatus == 'true') {
         if (is_hidebar == 'true') {
-          await windowClass.setWindowLayoutFullScreen(false)
+          // 小白条开启：必须全屏布局。非全屏布局下系统会把导航栏画成默认黑，
+          // navigationBarColor 被忽略；全屏布局下窗口延伸到小白条下方，采样色可正常上屏
+          await windowClass.setWindowLayoutFullScreen(true)
           await windowClass.setSpecificSystemBarEnabled('status', true, true);
           await windowClass.setSpecificSystemBarEnabled('navigationIndicator', true, true);
         } else {
@@ -963,7 +965,7 @@ struct Index {
             .height(30)
 
           Row() {
-            Text("Version:1.2.7")
+            Text("Version:1.2.8")
               .fontColor($r('app.color.dialog_text_secondary'))
               .width('100%')
               .textAlign(TextAlign.Center)
