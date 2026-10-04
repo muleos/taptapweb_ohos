@@ -250,6 +250,7 @@ struct Index {
   @State isFull: string = 'true';
   @State slide_num: number = 0.3;
   @State webDark: string = 'auto'; // 'auto'=跟随系统深浅色, 'dark'=强制深色
+  @State sysDarkOn: boolean = false; // 系统当前是否深色（强制深色按钮跟随系统深浅色切换）
   // 沉浸式：状态栏高度留白(px->vp)，供下拉顶栏避开状态栏
   @State safeTopVp: number = 0;
   private lastImmersiveBg: string = '';
@@ -318,25 +319,8 @@ struct Index {
         }
       }
     }
-    // 沉浸式：浅色模式系统栏全透明露出页面内容；深色模式顶栏#1B1C21/底栏#161920
-    try {
-      if (this.isDarkModeNow()) {
-        await windowClass.setWindowSystemBarProperties({
-          statusBarColor: '#FF1B1C21',
-          navigationBarColor: '#FF161920',
-          statusBarContentColor: '#FFFFFFFF',
-          isStatusBarLightIcon: true
-        });
-      } else {
-        await windowClass.setWindowSystemBarProperties({
-          statusBarColor: '#00000000',
-          navigationBarColor: '#00000000',
-          statusBarContentColor: '#FF000000',
-          isStatusBarLightIcon: false
-        });
-      }
-    } catch (err) {
-    }
+    // 系统栏样式：全屏顶栏恒#1B1C21（浅色同深色）；非全屏小白条恒#161920
+    await this.updateSystemBarStyle();
     // 计算状态栏高度留白（下拉顶栏避开状态栏）
     try {
       const area = windowClass.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
@@ -348,7 +332,10 @@ struct Index {
 
   async aboutToAppear() {
     // 系统深浅色切换：强制重设系统栏（深色：顶栏#1B1C21/底栏#161920）
-    EmitterUtil.on<number>('ttw_color_mode_changed', () => {
+    EmitterUtil.on<number>('ttw_color_mode_changed', (event) => {
+      // 强制深色按钮跟随系统深浅色切换：记录系统当前是否深色
+      const mode = event?.data as number;
+      this.sysDarkOn = mode === (ConfigurationConstant.ColorMode.COLOR_MODE_DARK as number);
       this.applyImmersiveTheme(this.lastImmersiveBg, true);
     });
     // 网页缓存管理：记录最后使用时间；超过 7 天未使用，启动时自动清除缓存
@@ -382,6 +369,11 @@ struct Index {
     this.isFull = (await getIsfull() || this.isFull);
     this.slide_num = (await getSlidenum() || this.slide_num);
     this.webDark = (await getWebDarkMode() || this.webDark);
+    // 强制深色按钮状态同步系统当前深浅色
+    try {
+      this.sysDarkOn = context_index.config?.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK;
+    } catch (err) {
+    }
     // 开启预连接需要先使用上述方法预加载WebView内核。
     //webview.WebviewController.initializeWebEngine();
     // 启动预连接，连接地址为即将打开的网址。
@@ -935,6 +927,7 @@ struct Index {
                 this.webDark = isOn ? 'dark' : 'auto';
                 saveWebDarkMode(this.webDark);
                 this.lastImmersiveBg = '';
+                this.applyImmersiveTheme(this.lastImmersiveBg, true);
                 this.refreshWeb();
               })
           }
@@ -971,7 +964,7 @@ struct Index {
             .height(30)
 
           Row() {
-            Text("Version:1.2.2")
+            Text("Version:1.2.3")
               .fontColor($r('app.color.dialog_text_secondary'))
               .width('100%')
               .textAlign(TextAlign.Center)
@@ -1137,7 +1130,7 @@ struct Index {
   }
 
   get_isWebDark(): boolean {
-    return this.webDark === 'dark';
+    return this.webDark === 'dark' || this.sysDarkOn;
   }
 
   /** 长按网页图片/视频 -> 接管系统菜单，弹自绘菜单（移植自 aira-browser 长按上下文菜单方案） */
@@ -1237,6 +1230,47 @@ struct Index {
     return false;
   }
 
+  /** 系统栏样式：全屏时顶栏(状态栏)恒#1B1C21（浅色同深色）；非全屏时小白条(导航栏)恒#161920 */
+  private async updateSystemBarStyle(pageBg: string = ''): Promise<void> {
+    try {
+      const win = await window.getLastWindow(context_index);
+      const dark = this.isDarkModeNow();
+      const full = this.isFull === 'true';
+      let statusBarColor = '#00000000';
+      let navigationBarColor = '#00000000';
+      let statusContent = '#FF000000';
+      let navContent = '#FF000000';
+      if (full) {
+        // 全屏：顶栏浅色模式同深色模式，恒 #1B1C21；底栏深色 #161920、浅色透明沉浸
+        statusBarColor = '#FF1B1C21';
+        statusContent = '#FFFFFFFF';
+        navigationBarColor = dark ? '#FF161920' : '#00000000';
+        navContent = dark ? '#FFFFFFFF' : '#FF000000';
+      } else {
+        // 非全屏：小白条(导航栏)恒 #161920；顶栏深色 #1B1C21、浅色透明取色
+        navigationBarColor = '#FF161920';
+        navContent = '#FFFFFFFF';
+        if (dark) {
+          statusBarColor = '#FF1B1C21';
+          statusContent = '#FFFFFFFF';
+        } else if (pageBg) {
+          const r = parseInt(pageBg.substr(1, 2), 16);
+          const g = parseInt(pageBg.substr(3, 2), 16);
+          const b = parseInt(pageBg.substr(5, 2), 16);
+          statusContent = (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6 ? '#FF000000' : '#FFFFFFFF';
+        }
+      }
+      win.setWindowSystemBarProperties({
+        statusBarColor: statusBarColor,
+        navigationBarColor: navigationBarColor,
+        statusBarContentColor: statusContent,
+        navigationBarContentColor: navContent,
+        isStatusBarLightIcon: statusContent === '#FFFFFFFF'
+      });
+    } catch (err) {
+    }
+  }
+
   /** 沉浸式取色：按页面背景色调整系统栏内容色（参考 aira-browser BrowserStatusBarStyleService） */
   async applyImmersiveTheme(bg: string, force: boolean = false): Promise<void> {
     if (!force && (!bg || bg === this.lastImmersiveBg)) {
@@ -1245,34 +1279,7 @@ struct Index {
     if (!force) {
       this.lastImmersiveBg = bg;
     }
-    try {
-      const win = await window.getLastWindow(context_index);
-      if (this.isDarkModeNow()) {
-        // 深色模式：顶栏(状态栏)#1B1C21、底栏(导航栏)#161920，内容用浅色
-        win.setWindowSystemBarProperties({
-          statusBarColor: '#FF1B1C21',
-          navigationBarColor: '#FF161920',
-          statusBarContentColor: '#FFFFFFFF',
-          navigationBarContentColor: '#FFFFFFFF',
-          isStatusBarLightIcon: true
-        });
-        return;
-      }
-      let content = '#FF000000';
-      const r = parseInt(bg.substr(1, 2), 16);
-      const g = parseInt(bg.substr(3, 2), 16);
-      const b = parseInt(bg.substr(5, 2), 16);
-      const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-      content = lum > 0.6 ? '#FF000000' : '#FFFFFFFF';
-      win.setWindowSystemBarProperties({
-        statusBarColor: '#00000000',
-        navigationBarColor: '#00000000',
-        statusBarContentColor: content,
-        navigationBarContentColor: content,
-        isStatusBarLightIcon: content === '#FFFFFFFF'
-      });
-    } catch (err) {
-    }
+    await this.updateSystemBarStyle(bg);
   }
 
   get_isLSRefresh() {
