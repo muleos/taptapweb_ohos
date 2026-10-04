@@ -1070,7 +1070,7 @@ struct Index {
             .height(30)
 
           Row() {
-            Text("Version:1.2.9")
+            Text("Version:1.7.1")
               .fontColor($r('app.color.dialog_text_secondary'))
               .width('100%')
               .textAlign(TextAlign.Center)
@@ -1092,6 +1092,18 @@ struct Index {
               })
               .height(40)
               .width(100)
+            // 登录 TapTap：云玩按钮数据、工具箱第三方工具授权都依赖网页登录态；
+            // /login 走纯浏览器 UA（isWebOnlyUrl），网页版支持手机验证码登录
+            Button('登录 TapTap')
+              .type(ButtonType.Capsule)
+              .backgroundColor($r('app.color.dialog_text_secondary'))
+              .margin({ left: 16 })
+              .onClick(() => {
+                this.showSetting = false;
+                this.controller.loadUrl('https://www.taptap.cn/login');
+              })
+              .height(40)
+              .width(130)
           }
 
         }
@@ -1519,7 +1531,7 @@ struct Index {
     }
   }
 
-  /** 纯 Web 体验页：poster 活动页（如原神角色查询）与网页云玩播放器。
+  /** 纯 Web 体验页：poster 活动页（如原神角色查询）、网页云玩播放器、登录/OAuth 页。
    * 伪装 UA 会命中页面的“App 内”分支，走客户端专属桥导致无法进入/无按钮；
    * 进入时临时摘除 TapTap 标识按普通浏览器加载，离开发自动恢复 */
   private isWebOnlyUrl(url: string): boolean {
@@ -1533,12 +1545,18 @@ struct Index {
       if (host !== '' && host.indexOf('taptap') < 0) {
         return true;
       }
+      // TapTap 账号/OAuth 域（accounts.taptap.cn）：伪装 UA + 假桥未登录会卡"扫码登录"墙，
+      // 按普通浏览器加载网页版登录（手机验证码/密码），登录 cookie 与主站共享
+      if (host.indexOf('accounts.taptap') >= 0) {
+        return true;
+      }
       if ((url || '').indexOf('taptap') < 0) {
         return false;
       }
       const pathStart = url.indexOf('/', url.indexOf('//') + 2);
       const path = pathStart >= 0 ? url.substring(pathStart) : '';
-      return path.indexOf('/poster/') >= 0 || path.indexOf('/web-cloud-game') >= 0;
+      return path.indexOf('/poster/') >= 0 || path.indexOf('/web-cloud-game') >= 0 ||
+        path.indexOf('/login') >= 0 || path.indexOf('/oauth') >= 0;
     } catch (err) {
       return false;
     }
