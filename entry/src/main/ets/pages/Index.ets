@@ -958,7 +958,7 @@ struct Index {
             .height(30)
 
           Row() {
-            Text("Version:1.2.5")
+            Text("Version:1.2.6")
               .fontColor($r('app.color.dialog_text_secondary'))
               .width('100%')
               .textAlign(TextAlign.Center)
