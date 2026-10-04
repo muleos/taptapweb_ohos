@@ -512,7 +512,7 @@ struct Index {
               .onLoadIntercept((event) => {
                 // 拦截非网页协议的跳转，交给系统/外部应用打开（如 taptap:// 等应用深链）
                 if (event && event.data) {
-                  const url: string = event.data.getRequestURL() || '';
+                  const url: string = event.data.getRequestUrl() || '';
                   const scheme: string = url.split(':')[0]?.toLowerCase() || '';
                   const webSchemes: string[] = ['http', 'https', 'file', 'about', 'data', 'blob', 'javascript'];
                   if (scheme !== '' && !webSchemes.includes(scheme)) {

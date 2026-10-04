@@ -1,0 +1,22 @@
+# 构建产物（DevEco / hvigor 自动生成）
+entry/build/
+build/
+.hvigor/
+oh_modules/
+local.properties
+
+# 本地签名与产物
+*.hap
+*.app
+*.p12
+*.csr
+*.cer
+*.jks
+
+# 系统 / 工具
+.DS_Store
+.idea/
+*.log
+.cxx/
+/.remote_head.txt
+build_log.txt
