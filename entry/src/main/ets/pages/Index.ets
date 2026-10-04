@@ -257,6 +257,12 @@ struct Index {
   @State safeTopVp: number = 0;
   // 全屏避让填充色：状态栏区域与页面顶部采样色一致，避免色差断层
   @State topFillColor: string = '';
+  // 状态栏原生高度(vp)：全屏布局下二三级页面的避让量来源
+  private statusVp: number = 0;
+  // 当前窗口是否为全屏布局（setWindowLayoutFullScreen(true) 后窗口延伸到状态栏下）
+  private fullLayout: boolean = false;
+  // 当前主文档 URL：用于区分首页一级界面（保持沉浸不避让）与二三级页面（避让状态栏）
+  private pageUrl: string = '';
   private lastTopBg: string = '';
   private lastBottomBg: string = '';
   // 长按上下文菜单（图片/视频）
@@ -278,24 +284,28 @@ struct Index {
     if (is_full == 'true') {
       if (is_hidestatus == 'true') {
         if (is_hidebar == 'true') {
-          await windowClass.setWindowLayoutFullScreen(true)
+          await windowClass.setWindowLayoutFullScreen(true);
+          this.fullLayout = true;
           await windowClass.setSpecificSystemBarEnabled('status', true, true);
           await windowClass.setSpecificSystemBarEnabled('navigationIndicator', true, true);
 
         } else {
-          await windowClass.setWindowLayoutFullScreen(true)
+          await windowClass.setWindowLayoutFullScreen(true);
+          this.fullLayout = true;
           await windowClass.setSpecificSystemBarEnabled('status', true, true);
           await windowClass.setSpecificSystemBarEnabled('navigationIndicator', false, true);
 
         }
       } else {
         if (is_hidebar == 'true') {
-          await windowClass.setWindowLayoutFullScreen(true)
+          await windowClass.setWindowLayoutFullScreen(true);
+          this.fullLayout = true;
           await windowClass.setSpecificSystemBarEnabled('status', false, true);
           await windowClass.setSpecificSystemBarEnabled('navigationIndicator', true, true);
 
         } else {
-          await windowClass.setWindowLayoutFullScreen(true)
+          await windowClass.setWindowLayoutFullScreen(true);
+          this.fullLayout = true;
           await windowClass.setSpecificSystemBarEnabled('status', false, true);
           await windowClass.setSpecificSystemBarEnabled('navigationIndicator', false, true);
 
@@ -306,24 +316,28 @@ struct Index {
         if (is_hidebar == 'true') {
           // 小白条开启：必须全屏布局。非全屏布局下系统会把导航栏画成默认黑，
           // navigationBarColor 被忽略；全屏布局下窗口延伸到小白条下方，采样色可正常上屏
-          await windowClass.setWindowLayoutFullScreen(true)
+          await windowClass.setWindowLayoutFullScreen(true);
+          this.fullLayout = true;
           await windowClass.setSpecificSystemBarEnabled('status', true, true);
           await windowClass.setSpecificSystemBarEnabled('navigationIndicator', true, true);
         } else {
-          await windowClass.setWindowLayoutFullScreen(false)
+          await windowClass.setWindowLayoutFullScreen(false);
+          this.fullLayout = false;
           await windowClass.setSpecificSystemBarEnabled('status', true, true);
           await windowClass.setSpecificSystemBarEnabled('navigationIndicator', false, true);
 
         }
       } else {
         if (is_hidebar == 'true') {
-          await windowClass.setWindowLayoutFullScreen(true)
+          await windowClass.setWindowLayoutFullScreen(true);
+          this.fullLayout = true;
           await windowClass.setSpecificSystemBarEnabled('status', false, true);
 
           await windowClass.setSpecificSystemBarEnabled('navigationIndicator', true, true);
 
         } else {
-          await windowClass.setWindowLayoutFullScreen(false)
+          await windowClass.setWindowLayoutFullScreen(false);
+          this.fullLayout = false;
           await windowClass.setSpecificSystemBarEnabled('status', false, true);
           await windowClass.setSpecificSystemBarEnabled('navigationIndicator', false, true);
 
@@ -336,12 +350,43 @@ struct Index {
     setTimeout(() => {
       this.updateSystemBarStyle(this.lastTopBg, this.lastBottomBg);
     }, 350);
-    // 计算状态栏高度留白（下拉顶栏避开状态栏）
+    // 状态栏原生高度：全屏布局下二三级页面避让用；非全屏布局窗口自动避让，不加 padding
     try {
       const area = windowClass.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
-      this.safeTopVp = px2vp(area.topRect.top);
+      this.statusVp = px2vp(area.topRect.top);
     } catch (err) {
-      this.safeTopVp = 0;
+      this.statusVp = 0;
+    }
+    this.pageUrl = this.saved_home_url || '';
+    this.updateSafeTop();
+  }
+
+  /** 一级界面判定：主文档 URL 与设置的主页一致（去 query/hash、归一尾斜杠）视为首页，保持沉浸不避让 */
+  private isTopLevelUrl(url: string): boolean {
+    try {
+      const norm = (u: string): string => {
+        let s = (u || '').split('#')[0].split('?')[0];
+        if (s.length > 1 && s.endsWith('/')) {
+          s = s.substring(0, s.length - 1);
+        }
+        return s;
+      };
+      const home = norm(this.saved_home_url);
+      if (home === '') {
+        return false;
+      }
+      return norm(url) === home;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  /** 按布局模式与页面层级计算避让量：仅全屏布局且非首页一级界面时避让状态栏 */
+  private updateSafeTop(): void {
+    const target: number = (this.fullLayout && this.statusVp > 0 && !this.isTopLevelUrl(this.pageUrl))
+      ? this.statusVp : 0;
+    if (target !== this.safeTopVp) {
+      this.safeTopVp = target;
     }
   }
 
@@ -610,6 +655,9 @@ struct Index {
                   // 发布器页移动网页端未适配（页面自述面向电脑端）：进入时自动改用桌面 UA，离开时恢复
                   // 仅处理主文档导航，避免页面内 XHR/子资源请求触发 UA 反复切换
                   if ((scheme === 'http' || scheme === 'https') && event.data.isMainFrame()) {
+                    // 主文档导航：按页面层级刷新状态栏避让（首页沉浸，二三级避让）
+                    this.pageUrl = url;
+                    this.updateSafeTop();
                     const isPub = this.isPublisherUrl(url);
                     const isWebOnly = this.isWebOnlyUrl(url);
                     if (this.ua_type === 'Mobile') {
