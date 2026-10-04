@@ -1,6 +1,6 @@
 import { webview } from '@kit.ArkWeb';
 import { promptAction, window, display, prompt } from '@kit.ArkUI';
-import { common, Want, OpenLinkOptions } from '@kit.AbilityKit';
+import { common, Want, OpenLinkOptions, ConfigurationConstant } from '@kit.AbilityKit';
 import util from '@ohos.util';
 import {
   saveHomeUrl,
@@ -315,14 +315,23 @@ struct Index {
         }
       }
     }
-    // 沉浸式：系统栏背景全透明，露出页面内容；内容色由取色探针动态调整
+    // 沉浸式：浅色模式系统栏全透明露出页面内容；深色模式顶栏#1B1C21/底栏#161920
     try {
-      await windowClass.setWindowSystemBarProperties({
-        statusBarColor: '#00000000',
-        navigationBarColor: '#00000000',
-        statusBarContentColor: '#FF000000',
-        isStatusBarLightIcon: false
-      });
+      if (this.isDarkModeNow()) {
+        await windowClass.setWindowSystemBarProperties({
+          statusBarColor: '#FF1B1C21',
+          navigationBarColor: '#FF161920',
+          statusBarContentColor: '#FFFFFFFF',
+          isStatusBarLightIcon: true
+        });
+      } else {
+        await windowClass.setWindowSystemBarProperties({
+          statusBarColor: '#00000000',
+          navigationBarColor: '#00000000',
+          statusBarContentColor: '#FF000000',
+          isStatusBarLightIcon: false
+        });
+      }
     } catch (err) {
     }
     // 计算状态栏高度留白（下拉顶栏避开状态栏）
@@ -335,6 +344,10 @@ struct Index {
   }
 
   async aboutToAppear() {
+    // 系统深浅色切换：强制重设系统栏（深色：顶栏#1B1C21/底栏#161920）
+    EmitterUtil.on<number>('ttw_color_mode_changed', () => {
+      this.applyImmersiveTheme(this.lastImmersiveBg, true);
+    });
     EmitterUtil.on<number>('affffa', (event) => {
       if (event?.data === 1) {
         this.downloadWebLoading.open()
@@ -367,6 +380,7 @@ struct Index {
     EmitterUtil.off<number>('affffa', (event) => {
 
     })
+    EmitterUtil.unSubscribe('ttw_color_mode_changed');
   }
 
   @Builder
@@ -1172,25 +1186,47 @@ struct Index {
     }
   }
 
+  /** 是否深色模式：开启强制深色，或系统当前为深色 */
+  private isDarkModeNow(): boolean {
+    if (this.webDark === 'dark') {
+      return true;
+    }
+    try {
+      if (context_index.config?.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK) {
+        return true;
+      }
+    } catch (err) {
+    }
+    return false;
+  }
+
   /** 沉浸式取色：按页面背景色调整系统栏内容色（参考 aira-browser BrowserStatusBarStyleService） */
-  async applyImmersiveTheme(bg: string): Promise<void> {
-    if (!bg || bg === this.lastImmersiveBg) {
+  async applyImmersiveTheme(bg: string, force: boolean = false): Promise<void> {
+    if (!force && (!bg || bg === this.lastImmersiveBg)) {
       return;
     }
-    this.lastImmersiveBg = bg;
+    if (!force) {
+      this.lastImmersiveBg = bg;
+    }
     try {
       const win = await window.getLastWindow(context_index);
-      let content = '#FF000000';
-      if (this.webDark === 'dark') {
-        // 强制深色：页面视觉为深色，图标用浅色
-        content = '#FFFFFFFF';
-      } else {
-        const r = parseInt(bg.substr(1, 2), 16);
-        const g = parseInt(bg.substr(3, 2), 16);
-        const b = parseInt(bg.substr(5, 2), 16);
-        const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-        content = lum > 0.6 ? '#FF000000' : '#FFFFFFFF';
+      if (this.isDarkModeNow()) {
+        // 深色模式：顶栏(状态栏)#1B1C21、底栏(导航栏)#161920，内容用浅色
+        win.setWindowSystemBarProperties({
+          statusBarColor: '#FF1B1C21',
+          navigationBarColor: '#FF161920',
+          statusBarContentColor: '#FFFFFFFF',
+          navigationBarContentColor: '#FFFFFFFF',
+          isStatusBarLightIcon: true
+        });
+        return;
       }
+      let content = '#FF000000';
+      const r = parseInt(bg.substr(1, 2), 16);
+      const g = parseInt(bg.substr(3, 2), 16);
+      const b = parseInt(bg.substr(5, 2), 16);
+      const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+      content = lum > 0.6 ? '#FF000000' : '#FFFFFFFF';
       win.setWindowSystemBarProperties({
         statusBarColor: '#00000000',
         navigationBarColor: '#00000000',

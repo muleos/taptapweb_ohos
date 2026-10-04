@@ -1,4 +1,5 @@
-import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
+import { AbilityConstant, ConfigurationConstant, UIAbility, Want, Configuration } from '@kit.AbilityKit';
+import { EmitterUtil } from '../utiles/EmitterUtil'
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 
@@ -35,6 +36,11 @@ export default class EntryAbility extends UIAbility {
       }
       hilog.info(DOMAIN, 'testTag', 'Succeeded in loading the content.');
     });
+  }
+
+  onConfigurationUpdate(newConfig: Configuration): void {
+    // 系统深浅色切换：通知页面重设系统栏背景
+    EmitterUtil.post('ttw_color_mode_changed', newConfig.colorMode);
   }
 
   onWindowStageDestroy(): void {
