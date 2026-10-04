@@ -21,7 +21,9 @@ import {
   saveSlidenum,
   saveWebDarkMode,
   getWebDarkMode,
-  saveFakeAppUa
+  saveFakeAppUa,
+  saveBottomLift,
+  getBottomLift
 } from '../model/StorageService';
 import { DownloadConfirmDialog } from '../component/DownloadConfirmDialog'
 import { IAbstractDownloadHandler } from '../delegate/IWebDownloadFile'
@@ -256,8 +258,14 @@ struct Index {
   @State safeTopVp: number = 0;
   // 非全屏布局下页面底栏抬高量(vp)：窗口不延伸到导航区时把网页视口整体上收，避免网页底栏贴屏/被小白条手势区压住
   @State bottomLiftVp: number = 0;
+  // 底栏抬高设置值(0-30vp)：设置面板可调，非全屏布局时生效（bottomLiftVp 的来源）
+  @State bottomLiftSetting: number = 28;
   // 全屏避让填充色：状态栏区域与页面顶部采样色一致，避免色差断层
   @State topFillColor: string = '';
+  // 底栏抬高区填充色：与底部采样色一致（同状态栏避让的取色逻辑）
+  @State bottomFillColor: string = '';
+  // 主内容区实际高度(vp)：底栏抬高区渐变分段填充的锚点
+  @State contentHeightVp: number = 0;
   // 状态栏原生高度(vp)：全屏布局下二三级页面的避让量来源
   private statusVp: number = 0;
   // 当前窗口是否为全屏布局（setWindowLayoutFullScreen(true) 后窗口延伸到状态栏下）
@@ -360,11 +368,32 @@ struct Index {
     }
     this.pageUrl = this.saved_home_url || '';
     this.updateSafeTop();
-    // 底栏抬高：仅非全屏布局生效；全屏布局下窗口自管导航区，抬高会留无意义空带
-    const liftVp: number = this.fullLayout ? 0 : 28;
+    // 底栏抬高：仅非全屏布局生效，抬高量取设置值；全屏布局下窗口自管导航区，抬高会留无意义空带
+    this.applyBottomLift();
+  }
+
+  /** 底栏抬高量 = 设置值（0-30vp）；全屏布局恒 0 */
+  private applyBottomLift(): void {
+    const liftVp: number = this.fullLayout ? 0 : this.bottomLiftSetting;
     if (liftVp !== this.bottomLiftVp) {
       this.bottomLiftVp = liftVp;
     }
+  }
+
+  /** 渐变分段锚点：顶部避让区结束比例（0-1） */
+  private topStop(): number {
+    if (this.contentHeightVp <= 0 || this.safeTopVp <= 0) {
+      return 0;
+    }
+    return Math.min(1, this.safeTopVp / this.contentHeightVp);
+  }
+
+  /** 渐变分段锚点：底部抬高区开始比例（0-1） */
+  private bottomStop(): number {
+    if (this.contentHeightVp <= 0 || this.bottomLiftVp <= 0) {
+      return 1;
+    }
+    return Math.max(0, 1 - this.bottomLiftVp / this.contentHeightVp);
   }
 
   /** 一级界面判定：主文档 URL 与设置的主页一致（去 query/hash、归一尾斜杠）视为首页，保持沉浸不避让 */
@@ -437,6 +466,11 @@ struct Index {
     this.isFull = (await getIsfull() || this.isFull);
     this.slide_num = (await getSlidenum() || this.slide_num);
     this.webDark = (await getWebDarkMode() || this.webDark);
+    // 底栏抬高设置值(0-30vp)：默认 28，超界纠正
+    const savedLift = Number(await getBottomLift() || '');
+    this.bottomLiftSetting = isNaN(savedLift)
+      ? 28
+      : Math.max(0, Math.min(30, Math.round(savedLift)));
     // 开启预连接需要先使用上述方法预加载WebView内核。
     //webview.WebviewController.initializeWebEngine();
     // 启动预连接，连接地址为即将打开的网址。
@@ -706,9 +740,25 @@ struct Index {
           }
           .width("100%")
           .height("100%")
-          // 顶部状态栏避让；底部：非全屏布局抬高 28vp 让网页底栏离开屏幕下缘
+          // 顶部状态栏避让；底部：非全屏布局抬高（0-30vp 可调）让网页底栏离开屏幕下缘
           .padding({ top: this.safeTopVp, bottom: this.bottomLiftVp })
-          .backgroundColor(this.topFillColor === '' ? $r('app.color.panel_bg') : this.topFillColor)
+          // 避让/抬高区分段取色：上段用页面顶部采样色、下段用页面底部采样色（与系统栏同逻辑）；
+          // 无采样时回退 panel_bg（浅色资源自适配深浅色）
+          .linearGradient({
+            angle: 180,
+            colors: [
+              [this.topFillColor === '' ? $r('app.color.panel_bg') : this.topFillColor, 0],
+              [this.topFillColor === '' ? $r('app.color.panel_bg') : this.topFillColor, this.topStop()],
+              [this.bottomFillColor === '' ? $r('app.color.panel_bg') : this.bottomFillColor, this.bottomStop()],
+              [this.bottomFillColor === '' ? $r('app.color.panel_bg') : this.bottomFillColor, 1]
+            ]
+          })
+          .onAreaChange((_oldArea: Area, newArea: Area) => {
+            const h: number = Number(newArea.height) || 0;
+            if (h > 0 && Math.abs(h - this.contentHeightVp) > 0.5) {
+              this.contentHeightVp = h;
+            }
+          })
 
         }
 
@@ -1065,12 +1115,46 @@ struct Index {
 
           }
 
+          Row() {
+            Text("底栏抬高")
+              .fontColor($r('app.color.dialog_text'))
+              .width("30%")
+              .height(32)
+            Text()
+              .width('10%')
+            Slider({
+              value: this.bottomLiftSetting,
+              step: 1,
+              min: 0,
+              max: 30,
+              style: SliderStyle.InSet
+            })
+              .width('50%')
+              .height(25)
+              .showSteps(true)
+              .onChange((value: number, mode: SliderChangeMode) => {
+                const v: number = Math.max(0, Math.min(30, Math.round(value)));
+                if (v === this.bottomLiftSetting && mode !== SliderChangeMode.End) {
+                  return;
+                }
+                this.bottomLiftSetting = v;
+                saveBottomLift(String(v));
+                // 非全屏布局立即生效；全屏布局自动忽略
+                this.applyBottomLift();
+              })
+            Text(this.bottomLiftSetting.toFixed(0))
+              .width('10%')
+              .height(32)
+              .textAlign(TextAlign.End)
+
+          }
+
 
           Row()
             .height(30)
 
           Row() {
-            Text("Version:1.7.1")
+            Text("Version:1.7.2")
               .fontColor($r('app.color.dialog_text_secondary'))
               .width('100%')
               .textAlign(TextAlign.Center)
@@ -1441,6 +1525,16 @@ struct Index {
       }
       if (fillTop !== this.topFillColor) {
         this.topFillColor = fillTop;
+      }
+      // 底栏抬高区填充色：与导航栏/底部采样色同一逻辑（无采样时深色用底栏色，浅色交给 panel_bg）
+      let fillBottom = '';
+      if (/^#[0-9a-fA-F]{6}$/.test(bottomBg)) {
+        fillBottom = dark && this.lumLight(bottomBg) ? this.darkenSample(bottomBg) : bottomBg;
+      } else {
+        fillBottom = dark ? '#161920' : '';
+      }
+      if (fillBottom !== this.bottomFillColor) {
+        this.bottomFillColor = fillBottom;
       }
     } catch (err) {
     }

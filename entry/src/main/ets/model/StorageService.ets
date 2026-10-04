@@ -118,3 +118,14 @@ export async function getFakeAppUa(): Promise<string> {
   const store = await getPreferences();
   return String(await store.get('fake_app_ua', ''));
 }
+
+export async function saveBottomLift(v: string) {
+  const store = await getPreferences();
+  await store.put('bottom_lift', v);
+  await store.flush();
+}
+
+export async function getBottomLift(): Promise<string> {
+  const store = await getPreferences();
+  return String(await store.get('bottom_lift', ''));
+}
