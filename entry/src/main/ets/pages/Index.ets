@@ -255,6 +255,8 @@ struct Index {
   @State webDark: string = 'auto'; // 'auto'=跟随系统深浅色, 'dark'=强制深色
   // 沉浸式：状态栏高度留白(px->vp)，供下拉顶栏避开状态栏
   @State safeTopVp: number = 0;
+  // 全屏避让填充色：状态栏区域与页面顶部采样色一致，避免色差断层
+  @State topFillColor: string = '';
   private lastTopBg: string = '';
   private lastBottomBg: string = '';
   // 长按上下文菜单（图片/视频）
@@ -263,6 +265,8 @@ struct Index {
   @State ctxY: number = 0;
   @State ctxItems: string[] = [];
   private ctxUrl: string = '';
+  // 发布器页已强制桌面 UA（离开发布器 URL 时在 onLoadIntercept 恢复）
+  private uaForcedDesktop: boolean = false;
 
 
 
@@ -601,6 +605,24 @@ struct Index {
                     this.openExternalApp(url);
                     return true; // 拦截，不让 WebView 自己加载
                   }
+                  // 发布器页移动网页端未适配（页面自述面向电脑端）：进入时自动改用桌面 UA，离开时恢复
+                  if (scheme === 'http' || scheme === 'https') {
+                    const isPub = this.isPublisherUrl(url);
+                    if (this.ua_type === 'Mobile') {
+                      if (isPub && !this.uaForcedDesktop) {
+                        this.uaForcedDesktop = true;
+                        this.controller.setCustomUserAgent(this.getuseragentbytype('PC'));
+                        this.controller.loadUrl(url);
+                        return true;
+                      }
+                      if (!isPub && this.uaForcedDesktop) {
+                        this.uaForcedDesktop = false;
+                        this.change_userAgent();
+                        this.controller.loadUrl(url);
+                        return true;
+                      }
+                    }
+                  }
                 }
                 return false;
               })
@@ -608,6 +630,9 @@ struct Index {
           }
           .width("100%")
           .height("100%")
+          // 状态栏避让：全屏布局下 Web 从状态栏下方起排，避让区用页面顶部采样色填充
+          .padding({ top: this.safeTopVp })
+          .backgroundColor(this.topFillColor === '' ? $r('app.color.panel_bg') : this.topFillColor)
 
         }
 
@@ -1110,6 +1135,8 @@ struct Index {
       return;
     }
     this.isRefreshing = true;
+    // 重置发布器桌面 UA 强制标记，onLoadIntercept 会按当前 URL 重新判定
+    this.uaForcedDesktop = false;
     // 执行刷新
     this.controller.refresh();
 
@@ -1337,6 +1364,16 @@ struct Index {
         navigationBarContentColor: navContent,
         isStatusBarLightIcon: statusContent === '#FFFFFFFF'
       });
+      // 避让区填充色与状态栏色保持一致（无采样时深色用顶栏色，浅色透明交给 panel_bg）
+      let fillTop = '';
+      if (/^#[0-9a-fA-F]{6}$/.test(topBg)) {
+        fillTop = dark && this.lumLight(topBg) ? this.darkenSample(topBg) : topBg;
+      } else {
+        fillTop = dark ? '#1B1C21' : '';
+      }
+      if (fillTop !== this.topFillColor) {
+        this.topFillColor = fillTop;
+      }
     } catch (err) {
     }
   }
@@ -1408,6 +1445,22 @@ struct Index {
         break;
     }
     return ua;
+  }
+
+  /** 发布器/编辑器等仅 PC 适配的页面（移动网页端发布器官方未适配）：自动改用桌面 UA */
+  private isPublisherUrl(url: string): boolean {
+    try {
+      if ((url || '').indexOf('taptap') < 0) {
+        return false;
+      }
+      const pathStart = url.indexOf('/', url.indexOf('//') + 2);
+      const path = pathStart >= 0 ? url.substring(pathStart) : '';
+      return path.indexOf('/publisher') >= 0 || path.indexOf('/embed/ugc-editor') >= 0 ||
+        path.indexOf('/topic/create') >= 0 || path.indexOf('/video/create') >= 0 ||
+        path.indexOf('/question/create') >= 0;
+    } catch (err) {
+      return false;
+    }
   }
 
   change_userAgent() {

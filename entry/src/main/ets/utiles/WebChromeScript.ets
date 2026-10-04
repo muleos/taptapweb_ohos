@@ -199,8 +199,10 @@ export const WEB_CHROME_SCRIPT: string = `
           hideUp(el);
           continue;
         }
-        if ((text === '下载App' || text === '下载APP') && el.children.length <= 3) {
-          hideUp(el);
+        // 下载 App：只隐藏按钮本身，保留所在行（如顶栏 logo 行正常显示）
+        if (text === '下载App' || text === '下载APP') {
+          el.style.setProperty('display', 'none', 'important');
+          el.setAttribute('data-ttw-hidden', '1');
         }
       }
     } catch (e) { }
@@ -226,6 +228,11 @@ export const WEB_CHROME_SCRIPT: string = `
   // 检测通过后页面渲染真实签到 UI，签到/领奖由页面自身 XHR + web 会话 cookie 完成。
   // 版本门禁读取桥方法 tapEnv() 的 VN_CODE（需 >= 293000000，否则弹"需要最新版本客户端"）。
   if ((navigator.userAgent || '').indexOf('TapTap') < 0) { return; }
+  var pp = location.pathname || '';
+  // 发布器/编辑器页走 PC 模式（原生层已切桌面 UA），不注入客户端桥，保持纯浏览器环境
+  if (pp.indexOf('/publisher') >= 0 || pp.indexOf('/embed/ugc-editor') >= 0 ||
+      pp.indexOf('/topic/create') >= 0 || pp.indexOf('/video/create') >= 0 ||
+      pp.indexOf('/question/create') >= 0) { return; }
   if (window.TapTapAPI) { return; }
   function ttwBridge(name, payload) { return undefined; }
   try {
@@ -244,6 +251,41 @@ export const WEB_CHROME_SCRIPT: string = `
   ttwBridge.getSMDeviceId = function () { return ''; };
   ttwBridge.getClientLoginState = function () { return '0'; };
   window.TapTapAPI = ttwBridge;
+})();
+;(function () {
+  // 发布器/编辑器页伪装 PC 环境：TapTap 移动网页端发布器未适配（页面自述“主要面向电脑端使用”），
+  // 桌面 UA 由原生层按 URL 自动切换；此处补齐 JS 层：去除 Android userAgentData、触摸特征置零
+  var pubPath = location.pathname || '';
+  if (pubPath.indexOf('/publisher') < 0 && pubPath.indexOf('/embed/ugc-editor') < 0 &&
+      pubPath.indexOf('/topic/create') < 0 && pubPath.indexOf('/video/create') < 0 &&
+      pubPath.indexOf('/question/create') < 0) { return; }
+  try {
+    Object.defineProperty(navigator, 'userAgentData', { get: function () { return undefined; }, configurable: true });
+  } catch (e) { }
+  try {
+    Object.defineProperty(navigator, 'maxTouchPoints', { get: function () { return 0; }, configurable: true });
+  } catch (e) { }
+  try {
+    Object.defineProperty(navigator, 'msMaxTouchPoints', { get: function () { return 0; }, configurable: true });
+  } catch (e) { }
+  try {
+    var ttwOrigMatch = window.matchMedia ? window.matchMedia.bind(window) : null;
+    if (ttwOrigMatch) {
+      window.matchMedia = function (q) {
+        var m = ttwOrigMatch(q);
+        try {
+          var qs = String(q || '');
+          if (qs.indexOf('pointer: coarse') >= 0 || qs.indexOf('pointer:coarse') >= 0 ||
+              qs.indexOf('hover: none') >= 0 || qs.indexOf('hover:none') >= 0) {
+            var fake = Object.create(m);
+            fake.matches = false;
+            return fake;
+          }
+        } catch (e2) { }
+        return m;
+      };
+    }
+  } catch (e) { }
 })();
 //# sourceURL=ttw-web-chrome.js
 `;
