@@ -3,6 +3,34 @@
     {
       "name": "start_window_background",
       "value": "#FFFFFF"
+    },
+    {
+      "name": "dialog_bg",
+      "value": "#26282E"
+    },
+    {
+      "name": "dialog_text",
+      "value": "#E8EAED"
+    },
+    {
+      "name": "dialog_text_secondary",
+      "value": "#9AA0A6"
+    },
+    {
+      "name": "dialog_divider",
+      "value": "#3A3D43"
+    },
+    {
+      "name": "ctx_menu_bg",
+      "value": "#26282E"
+    },
+    {
+      "name": "ctx_divider",
+      "value": "#3A3D43"
+    },
+    {
+      "name": "panel_bg",
+      "value": "#1B1C21"
     }
   ]
 }

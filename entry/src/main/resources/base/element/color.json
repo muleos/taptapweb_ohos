@@ -3,6 +3,34 @@
     {
       "name": "start_window_background",
       "value": "#FFFFFF"
+    },
+    {
+      "name": "dialog_bg",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "dialog_text",
+      "value": "#1A1A1A"
+    },
+    {
+      "name": "dialog_text_secondary",
+      "value": "#797B80"
+    },
+    {
+      "name": "dialog_divider",
+      "value": "#F3F3F3"
+    },
+    {
+      "name": "ctx_menu_bg",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "ctx_divider",
+      "value": "#EEEEEE"
+    },
+    {
+      "name": "panel_bg",
+      "value": "#F5F6F7"
     }
   ]
 }

@@ -32,6 +32,7 @@ import { http } from '@kit.NetworkKit';
 import { fileIo as fs, ReadOptions, WriteOptions } from '@kit.CoreFileKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { BusinessError, systemDateTime } from '@kit.BasicServicesKit';
+import { preferences } from '@kit.ArkData';
 import { buffer } from '@kit.ArkTS';
 
 enum ScreenOrientation {
@@ -117,6 +118,7 @@ struct Index {
   @State pic_w:number|undefined = 0;
   @State pic_h:number|undefined = 0;
   @State pic_dl_show:Visibility = Visibility.Hidden;
+  private shouldClearCache: boolean = false;
   @Builder
   //构建自定义菜单及触发功能接口
   MenuBuilder() {
@@ -125,6 +127,7 @@ struct Index {
         .height(10)
       Row(){
         Text('是否保存至图库')
+          .fontColor($r('app.color.dialog_text'))
           .fontSize(18)
       }
       Row(){
@@ -156,7 +159,7 @@ struct Index {
           this.pic_dl_show = Visibility.Hidden;
         })
           .height(32)
-          .backgroundColor(Color.Grey)
+          .backgroundColor($r('app.color.ctx_menu_bg'))
         Text()
           .width(10)
         SaveButton(this.saveButtonOptions) // 创建安全控件按钮。
@@ -194,7 +197,7 @@ struct Index {
       .justifyContent(FlexAlign.Center)
     }
     .width('80%')
-    .backgroundColor(Color.White)
+    .backgroundColor($r('app.color.ctx_menu_bg'))
     .borderRadius(10)
     .visibility(this.pic_dl_show)
   }
@@ -348,6 +351,20 @@ struct Index {
     EmitterUtil.on<number>('ttw_color_mode_changed', () => {
       this.applyImmersiveTheme(this.lastImmersiveBg, true);
     });
+    // 网页缓存管理：记录最后使用时间；超过 7 天未使用，启动时自动清除缓存
+    preferences.getPreferences(context_index, 'ttw_web_cache').then((pref) => {
+      const now: number = systemDateTime.getTime();
+      pref.get('cache_updated_at', 0).then((v) => {
+        const last: number = typeof v === 'number' ? v : 0;
+        if (last > 0 && now - last > 7 * 24 * 60 * 60 * 1000) {
+          this.shouldClearCache = true;
+        }
+        pref.put('cache_updated_at', now).then(() => {
+          pref.flush();
+        });
+      });
+    }).catch(() => {
+    });
     EmitterUtil.on<number>('affffa', (event) => {
       if (event?.data === 1) {
         this.downloadWebLoading.open()
@@ -427,6 +444,7 @@ struct Index {
           LoadingProgress()
             .height(32)
           Text('正在刷新...')
+              .fontColor($r('app.color.dialog_text'))
             .fontSize(16)
             .margin({ left: 20 })
         }
@@ -477,7 +495,7 @@ struct Index {
         .height(40)
         .width("100%")
         .alignItems(VerticalAlign.Center)
-        .backgroundColor('#F5F6F7')
+        .backgroundColor($r('app.color.panel_bg'))
         .justifyContent(FlexAlign.SpaceAround)
       }
       .padding({ top: this.safeTopVp })
@@ -494,6 +512,13 @@ struct Index {
               .onControllerAttached(() => {
                 this.controller.setNetworkAvailable(true);
                 this.webDownloadFile.setDownloadDelegate(this.controller);
+                if (this.shouldClearCache) {
+                  this.shouldClearCache = false;
+                  try {
+                    this.controller.removeCache(true);
+                  } catch (err) {
+                  }
+                }
                 console.info("onControllerAttached");
                 try {
                   this.change_userAgent()
@@ -592,7 +617,7 @@ struct Index {
 
       }
       .pullDownRatio(this.slide_num * this.isdrag)
-      .backgroundColor('#F5F6F7')
+      .backgroundColor($r('app.color.panel_bg'))
       .onRefreshing(() => this.onRefreshing())
       .onSizeChange(() => {
         window.getLastWindow(this.getUIContext().getHostContext(), (err, win) => {
@@ -632,6 +657,7 @@ struct Index {
         Column() {
           Row() {
             Text("首页")
+              .fontColor($r('app.color.dialog_text'))
               .width("12%")
               .height(32)
             TextInput({
@@ -672,6 +698,7 @@ struct Index {
 
           Row() {
             Text("UA")
+              .fontColor($r('app.color.dialog_text'))
               .width('12%')
             Text()
               .width(15)
@@ -687,6 +714,7 @@ struct Index {
               })
               .height(20)
             Text("手机")
+              .fontColor($r('app.color.dialog_text'))
               .onClick(() => {
                 if (this.ua_type == 'custom') {
                   this.c_ua_temp = this.getuseragentbytype('Mobile');
@@ -706,6 +734,7 @@ struct Index {
               })
               .height(20)
             Text("电脑")
+              .fontColor($r('app.color.dialog_text'))
               .onClick(() => {
                 if (this.ua_type == 'custom') {
                   this.c_ua_temp = this.getuseragentbytype('PC');
@@ -726,6 +755,7 @@ struct Index {
               })
               .height(20)
             Text("自定义")
+              .fontColor($r('app.color.dialog_text'))
               .onClick(() => {
                 if (this.ua_type == 'custom') {
                   this.c_ua_temp = this.getuseragentbytype('custom');
@@ -774,6 +804,7 @@ struct Index {
 
           Row() {
             Text("横屏禁止刷新")
+              .fontColor($r('app.color.dialog_text'))
               .width("35%")
               .height(32)
             Text()
@@ -808,6 +839,7 @@ struct Index {
 
           Row() {
             Text("全屏模式")
+              .fontColor($r('app.color.dialog_text'))
               .width("35%")
               .height(32)
             Text()
@@ -833,6 +865,7 @@ struct Index {
 
           Row() {
             Text("显示状态栏")
+              .fontColor($r('app.color.dialog_text'))
               .width("35%")
               .height(32)
             Text()
@@ -859,6 +892,7 @@ struct Index {
 
           Row() {
             Text("显示底部白条")
+              .fontColor($r('app.color.dialog_text'))
               .width("35%")
               .height(32)
             Text()
@@ -886,6 +920,7 @@ struct Index {
 
           Row() {
             Text("强制深色模式")
+              .fontColor($r('app.color.dialog_text'))
               .width("35%")
               .height(32)
             Text()
@@ -906,6 +941,7 @@ struct Index {
 
           Row() {
             Text("下拉灵敏度")
+              .fontColor($r('app.color.dialog_text'))
               .width("30%")
               .height(32)
             Text()
@@ -935,7 +971,8 @@ struct Index {
             .height(30)
 
           Row() {
-            Text("Version:1.2.0")
+            Text("Version:1.2.2")
+              .fontColor($r('app.color.dialog_text_secondary'))
               .width('100%')
               .textAlign(TextAlign.Center)
           }
@@ -962,7 +999,7 @@ struct Index {
         .width("90%")
         //.height("70%")
         .padding(20)
-        .backgroundColor('#F5F6F7')
+        .backgroundColor($r('app.color.panel_bg'))
         .borderRadius($r('sys.float.corner_radius_level8'))
       }
       .width("100%")
@@ -987,7 +1024,7 @@ struct Index {
           ForEach(this.ctxItems, (item: string) => {
             Text(item)
               .fontSize(15)
-              .fontColor('#1A1A1A')
+              .fontColor($r('app.color.dialog_text'))
               .height(44)
               .width(170)
               .textAlign(TextAlign.Center)
@@ -996,12 +1033,12 @@ struct Index {
               })
             if (item !== this.ctxItems[this.ctxItems.length - 1]) {
               Divider()
-                .color('#EEEEEE')
+                .color($r('app.color.ctx_divider'))
                 .width(150)
             }
           }, (item: string) => item)
         }
-        .backgroundColor('#FFFFFF')
+        .backgroundColor($r('app.color.ctx_menu_bg'))
         .borderRadius(12)
         .shadow({ radius: 16, color: '#26000000' })
         .position({ x: this.ctxX, y: this.ctxY })

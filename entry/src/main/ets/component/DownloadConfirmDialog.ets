@@ -30,7 +30,7 @@ export struct DownloadConfirmDialog {
           Text('下载中...')
             .fontSize(16)
             .lineHeight(20)
-            .fontColor('#1A1A1A')
+            .fontColor($r('app.color.dialog_text'))
             .margin({ top: 24, bottom: 16 })
           Progress({ value: this.downloadProgress, type: ProgressType.Linear })
             .width('90%')
@@ -41,13 +41,13 @@ export struct DownloadConfirmDialog {
         .borderRadius(24)
         .justifyContent(FlexAlign.Center)
         .alignItems(HorizontalAlign.Center)
-        .backgroundColor(Color.White)
+        .backgroundColor($r('app.color.dialog_bg'))
       } else {
         Column() {
           Text('是否下载该文件？')
             .fontSize(16)
             .lineHeight(20)
-            .fontColor('#1A1A1A')
+            .fontColor($r('app.color.dialog_text'))
             .margin({ bottom: 16 })
           Row() {
             Button("取消")
@@ -59,15 +59,15 @@ export struct DownloadConfirmDialog {
               .height(40)
               .backgroundColor(Color.Transparent)
               .fontSize(16)
-              .fontColor('#797B80')
-            Line().width(1).height(24).backgroundColor('#f3f3f3')
+              .fontColor($r('app.color.dialog_text_secondary'))
+            Line().width(1).height(24).backgroundColor($r('app.color.dialog_divider'))
             SaveButton({
               text: SaveDescription.DOWNLOAD,
               buttonType: ButtonType.Capsule
             })
               .width(148)
               .height(40)
-              .backgroundColor(Color.White)
+              .backgroundColor($r('app.color.dialog_bg'))
               .fontSize(16)
               .fontColor('#0A58F6')
               .onClick(async (event: ClickEvent, result: SaveButtonOnClickResult) => {
@@ -85,7 +85,7 @@ export struct DownloadConfirmDialog {
         .borderRadius(24)
         .justifyContent(FlexAlign.Center)
         .alignItems(HorizontalAlign.Center)
-        .backgroundColor(Color.White)
+        .backgroundColor($r('app.color.dialog_bg'))
       }
 
     }
