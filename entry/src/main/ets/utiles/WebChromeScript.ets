@@ -220,5 +220,30 @@ export const WEB_CHROME_SCRIPT: string = `
   setInterval(hideTaptapPromos, 1500);
   scheduleHide();
 })();
+;(function () {
+  // 伪造 TapTap 客户端 JSBridge：UA 含 TapTap 时向页面提供 window.TapTapAPI。
+  // TapTap 活动页（game-sign 等）的 inApp 检测只看该对象是否存在，不解析 UA；
+  // 检测通过后页面渲染真实签到 UI，签到/领奖由页面自身 XHR + web 会话 cookie 完成。
+  // 版本门禁读取桥方法 tapEnv() 的 VN_CODE（需 >= 293000000，否则弹"需要最新版本客户端"）。
+  if ((navigator.userAgent || '').indexOf('TapTap') < 0) { return; }
+  if (window.TapTapAPI) { return; }
+  function ttwBridge(name, payload) { return undefined; }
+  try {
+    delete ttwBridge.name;
+    delete ttwBridge.length;
+  } catch (e) { }
+  ttwBridge.tapEnv = function () {
+    return JSON.stringify({
+      PN: 'android',
+      VN: '2.94.0',
+      VN_CODE: '294000000',
+      LANG: 'zh_CN',
+      SAFE_AREA_INSET_TOP: 0
+    });
+  };
+  ttwBridge.getSMDeviceId = function () { return ''; };
+  ttwBridge.getClientLoginState = function () { return '0'; };
+  window.TapTapAPI = ttwBridge;
+})();
 //# sourceURL=ttw-web-chrome.js
 `;
