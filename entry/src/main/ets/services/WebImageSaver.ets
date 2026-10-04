@@ -24,16 +24,15 @@ export class WebImageSaver {
       const helper: photoAccessHelper.PhotoAccessHelper =
         photoAccessHelper.getPhotoAccessHelper(context);
       const assetUri: string = fileUri.getUriFromPath(tempPath);
-      const photoAsset: photoAccessHelper.PhotoAsset = new photoAccessHelper.PhotoAsset(assetUri);
       const config: photoAccessHelper.PhotoCreationConfig = {
         title: 'TapTapWeb_' + Date.now(),
         fileNameExtension: ext,
         photoType: photoAccessHelper.PhotoType.IMAGE
       };
-      const created: photoAccessHelper.PhotoAsset[] =
-        await helper.showAssetsCreationDialog([photoAsset], [config]);
+      const created: string[] =
+        await helper.showAssetsCreationDialog([assetUri], [config]);
       if (created && created.length > 0) {
-        const targetUri: string = created[0].uri;
+        const targetUri: string = created[0];
         const targetFile = fileIo.openSync(targetUri, fileIo.OpenMode.READ_WRITE);
         fileIo.writeSync(targetFile.fd, new Uint8Array(data));
         fileIo.closeSync(targetFile);

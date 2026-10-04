@@ -328,7 +328,7 @@ struct Index {
     // 计算状态栏高度留白（下拉顶栏避开状态栏）
     try {
       const area = windowClass.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
-      this.safeTopVp = px2vp(area.boundingRect.top);
+      this.safeTopVp = px2vp(area.topRect.top);
     } catch (err) {
       this.safeTopVp = 0;
     }
@@ -1090,7 +1090,7 @@ struct Index {
   }
 
   /** 长按网页图片/视频 -> 接管系统菜单，弹自绘菜单（移植自 aira-browser 长按上下文菜单方案） */
-  handleWebContextMenu(event: ContextMenuShowEvent): boolean {
+  handleWebContextMenu(event: OnContextMenuShowEvent): boolean {
     try {
       if (!event || !event.param) {
         return false;
@@ -1098,10 +1098,7 @@ struct Index {
       const param = event.param;
       let mediaType: number = -1;
       try {
-        const mediaParam = param as object as Record<string, () => number>;
-        if (typeof mediaParam['getMediaType'] === 'function') {
-          mediaType = Number(mediaParam['getMediaType']());
-        }
+        mediaType = Number(param.getMediaType());
       } catch (err) {
         mediaType = -1;
       }
