@@ -1876,7 +1876,7 @@ struct Index {
     }
     // 伪装 TapTap 客户端：Mobile UA 附加 TapTap 标识，网页据此判定为 App 内环境（可领签到奖励等）
     if (this.fakeAppUa === 'true' && this.ua_type === 'Mobile' && this.userAgent.indexOf('TapTap/') < 0) {
-      this.userAgent = this.userAgent + ' TapTap/2.83.0-rel_1000';
+      this.userAgent = this.userAgent + ' TapTap/2.94.0-rel_1000';
     }
     this.controller.setCustomUserAgent(this.userAgent);
   }

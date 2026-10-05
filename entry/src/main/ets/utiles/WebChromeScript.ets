@@ -7,6 +7,55 @@
 
 export const WEB_CHROME_SCRIPT: string = `
 ;(function () {
+  // 伪造 TapTap 客户端 JSBridge（必须放在所有 IIFE 最前：同一注入脚本内任何后续
+  // IIFE 顶层抛出未捕获异常都会中断其后所有语句，桥必须最先就位，否则活动页
+  // （game-sign 等）inApp 检测失败会退回"去客户端领取"模式）。
+  // TapTap 活动页的 inApp 检测只看 window.TapTapAPI 或 window.urlResource.TapTapAPI
+  // 是否存在，不解析 UA；检测通过后页面渲染真实签到/领取 UI，签到/领奖由页面自身
+  // XHR + web 会话 cookie 完成。版本门禁读取桥方法 tapEnv() 的 VN_CODE。
+  // 注入范围：taptap 主站一律注入（不依赖原生 UA 附加是否成功）；纯浏览器语境页
+  // （登录/OAuth/海报活动页/发布器/编辑器）不注入，避免页面走客户端专属流。
+  try {
+    var ttwHost = (location.hostname || '');
+    var ttwPath = location.pathname || '';
+    var ttwTapHost = ttwHost.indexOf('taptap.cn') >= 0 || ttwHost.indexOf('taptap.com') >= 0;
+    if (!ttwTapHost && (navigator.userAgent || '').indexOf('TapTap') < 0) { return; }
+    if (ttwHost.indexOf('accounts.') === 0) { return; }
+    if (ttwPath.indexOf('/poster/') === 0 || ttwPath.indexOf('/login') === 0 ||
+        ttwPath.indexOf('/oauth') === 0) { return; }
+    if (ttwPath.indexOf('/publisher') >= 0 || ttwPath.indexOf('/embed/ugc-editor') >= 0 ||
+        ttwPath.indexOf('/topic/create') >= 0 || ttwPath.indexOf('/video/create') >= 0 ||
+        ttwPath.indexOf('/question/create') >= 0) { return; }
+    if (window.TapTapAPI) { return; }
+    var ttwBridge = function ttwBridge(name, payload) { return undefined; };
+    try {
+      delete ttwBridge.name;
+      delete ttwBridge.length;
+    } catch (e0) { }
+    ttwBridge.tapEnv = function () {
+      return JSON.stringify({
+        PN: 'android',
+        VN: '2.94.0',
+        VN_CODE: '294000000',
+        LANG: 'zh_CN',
+        SAFE_AREA_INSET_TOP: 0
+      });
+    };
+    ttwBridge.getSMDeviceId = function () { return ''; };
+    // 登录态：web 会话有 user_id cookie 即视为已登录，页面 XHR 走同源会话完成真实鉴权
+    ttwBridge.getClientLoginState = function () {
+      try {
+        return /(?:^|;\\s*)user_id=\\d+/.test(document.cookie) ? '1' : '0';
+      } catch (e1) { return '0'; }
+    };
+    window.TapTapAPI = ttwBridge;
+    try {
+      window.urlResource = window.urlResource || {};
+      window.urlResource.TapTapAPI = window.urlResource.TapTapAPI || {};
+    } catch (e2) { }
+  } catch (ttwBridgeErr) { }
+})();
+;(function () {
   if (window.__ttwChromeInstalled) { return; }
   window.__ttwChromeInstalled = 1;
 
@@ -245,36 +294,7 @@ export const WEB_CHROME_SCRIPT: string = `
   setInterval(function () { if (!document.hidden) { hideTaptapPromos(); } }, 1500);
   scheduleHide();
 })();
-;(function () {
-  // 伪造 TapTap 客户端 JSBridge：UA 含 TapTap 时向页面提供 window.TapTapAPI。
-  // TapTap 活动页（game-sign 等）的 inApp 检测只看该对象是否存在，不解析 UA；
-  // 检测通过后页面渲染真实签到 UI，签到/领奖由页面自身 XHR + web 会话 cookie 完成。
-  // 版本门禁读取桥方法 tapEnv() 的 VN_CODE（需 >= 293000000，否则弹"需要最新版本客户端"）。
-  if ((navigator.userAgent || '').indexOf('TapTap') < 0) { return; }
-  var pp = location.pathname || '';
-  // 发布器/编辑器页走 PC 模式（原生层已切桌面 UA），不注入客户端桥，保持纯浏览器环境
-  if (pp.indexOf('/publisher') >= 0 || pp.indexOf('/embed/ugc-editor') >= 0 ||
-      pp.indexOf('/topic/create') >= 0 || pp.indexOf('/video/create') >= 0 ||
-      pp.indexOf('/question/create') >= 0) { return; }
-  if (window.TapTapAPI) { return; }
-  function ttwBridge(name, payload) { return undefined; }
-  try {
-    delete ttwBridge.name;
-    delete ttwBridge.length;
-  } catch (e) { }
-  ttwBridge.tapEnv = function () {
-    return JSON.stringify({
-      PN: 'android',
-      VN: '2.94.0',
-      VN_CODE: '294000000',
-      LANG: 'zh_CN',
-      SAFE_AREA_INSET_TOP: 0
-    });
-  };
-  ttwBridge.getSMDeviceId = function () { return ''; };
-  ttwBridge.getClientLoginState = function () { return '0'; };
-  window.TapTapAPI = ttwBridge;
-})();
+// 伪造客户端桥 IIFE 已移至脚本最前（见文件头部），此处不再重复注入
 ;(function () {
   // 发布器/编辑器页伪装 PC 环境：TapTap 移动网页端发布器未适配（页面自述“主要面向电脑端使用”），
   // 桌面 UA 由原生层按 URL 自动切换；此处补齐 JS 层：去除 Android userAgentData、触摸特征置零
