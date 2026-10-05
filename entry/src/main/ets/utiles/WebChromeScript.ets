@@ -191,7 +191,8 @@ export const WEB_CHROME_SCRIPT: string = `
       // 顶部绿色胶囊下载按钮：v1.7.0 逆向确认头部按钮为 a/div.main-layout-header__download-client
       // （border-radius:100px 胶囊、--phone 变体 accent 绿底白字），可见文案是“下载手机 APP”
       // 而非“下载App”，旧文字匹配从未命中。按类名精确命中按钮本体，不伤及同行标语。
-      var caps = document.querySelectorAll('.main-layout-header__download-client');
+      // v1.7.3：部分页面（如首页）头部按钮类名前缀一致但组件不同，放宽为 class 前缀匹配
+      var caps = document.querySelectorAll('[class*="download-client"]');
       for (var c = 0; c < caps.length; c++) {
         var cap = caps[c];
         if (!cap || cap.getAttribute('data-ttw-hidden')) { continue; }
@@ -209,14 +210,19 @@ export const WEB_CHROME_SCRIPT: string = `
           hideUp(el);
           continue;
         }
-        // 下载 App：只隐藏按钮本身，且仅限 a/button/span 等真实按钮节点。
-        // 不能匹配 div/header 容器——顶部“TapTap 发现好游戏”行的整体文案可能恰为“下载App”，
-        // 误匹配会把整行藏掉（v1.4.0 回归原因）。类名路径（上方）为主，此处为兜底。
+        // 下载 App：只隐藏按钮本体。v1.7.3 允许 div 但要求后代节点极少（按钮级），
+        // 整行横幅（logo/标语为图片、行文案恰为“下载App”）后代多不会误伤；
+        // “发现好游戏”字样出现时一律跳过（顶栏守卫行）
         if (text === '下载App' || text === '下载APP' || text === '下载手机APP') {
+          if (text.indexOf('发现好游戏') >= 0) { continue; }
           var tg = (el.tagName || '').toLowerCase();
-          if (tg === 'a' || tg === 'button' || tg === 'span') {
-            el.style.setProperty('display', 'none', 'important');
-            el.setAttribute('data-ttw-hidden', '1');
+          if (tg === 'a' || tg === 'button' || tg === 'span' || tg === 'div') {
+            var desc = 0;
+            try { desc = el.querySelectorAll('*').length; } catch (eD) { }
+            if (desc <= 8) {
+              el.style.setProperty('display', 'none', 'important');
+              el.setAttribute('data-ttw-hidden', '1');
+            }
           }
         }
       }
@@ -338,33 +344,43 @@ export const WEB_CHROME_SCRIPT: string = `
   unhideMarkedRows();
 })();
 ;(function () {
-  // 在线玩：游戏详情页“在线玩/启动云游戏”按钮在移动网页端只会唤起 TapTap 客户端
-  // （壳内无客户端，点击无响应），改为跳转 TapTap 官方网页云玩播放页
+  // 引导区去点击化：顶栏“TapTap 发现好游戏 / 下载 App”横幅、底部“打开 App 关注游戏”条等
+  // 只保留展示，不再响应点击——原点击会弹“前往 TapTap 客户端”弹窗或唤起深链（v1.7.3）。
+  // 捕获阶段拦截，命中引导文案即吞掉事件；元素本身不移除、不隐藏。
   if ((navigator.userAgent || '').indexOf('TapTap') < 0) { return; }
-  if (window.__ttwCloudPlayInstalled) { return; }
-  window.__ttwCloudPlayInstalled = 1;
+  if (window.__ttwPromoInertInstalled) { return; }
+  window.__ttwPromoInertInstalled = 1;
+
+  function ttwPromoText(el) {
+    var t = '';
+    try {
+      t = (el.textContent || '') + ' ' + ((el.getAttribute && el.getAttribute('aria-label')) || '');
+    } catch (e) { }
+    return t.replace(/\\s+/g, '');
+  }
+
   document.addEventListener('click', function (e) {
     try {
-      var m = (location.pathname || '').match(/^\\/app\\/(\\d+)/);
-      if (!m) { return; }
+      if ((location.hostname || '').indexOf('taptap') < 0) { return; }
       var el = e.target;
-      var hops = 0;
-      while (el && hops < 6) {
-        var text = (el.textContent || '').replace(/\\s+/g, '');
-        var tg = (el.tagName || '').toLowerCase();
-        var hit = text === '在线玩' || text.indexOf('启动云游戏') >= 0 ||
-          text.indexOf('立即云玩') >= 0 || text.indexOf('开始云玩') >= 0 ||
-          ((tg === 'a' || tg === 'button') &&
-            (text === '云玩' || text === '立即体验' || text === '云试玩'));
+      for (var i = 0; el && i < 8; i++, el = el.parentElement) {
+        var text = ttwPromoText(el);
+        if (!text) { continue; }
+        var hit = false;
+        if (text === '发现好游戏' || text === 'TapTap发现好游戏' ||
+            text === '下载App' || text === '下载APP' || text === '下载手机APP' ||
+            text === '打开App关注游戏' || text === '打开APP关注游戏') {
+          hit = true;
+        } else if (text.length <= 16 &&
+                   (text.indexOf('打开App') >= 0 || text.indexOf('打开APP') >= 0 ||
+                    text.indexOf('打开TapTap') >= 0 || text.indexOf('TapTap内打开') >= 0)) {
+          hit = true;
+        }
         if (hit) {
           e.preventDefault();
           e.stopPropagation();
-          window.location.href = '/web-cloud-game/play/' + m[1];
           return;
         }
-        if (text.length > 24) { return; }
-        el = el.parentElement;
-        hops++;
       }
     } catch (err) { }
   }, true);

@@ -1154,7 +1154,7 @@ struct Index {
             .height(30)
 
           Row() {
-            Text("Version:1.7.2")
+            Text("Version:1.7.3")
               .fontColor($r('app.color.dialog_text_secondary'))
               .width('100%')
               .textAlign(TextAlign.Center)
@@ -1625,9 +1625,10 @@ struct Index {
     }
   }
 
-  /** 纯 Web 体验页：poster 活动页（如原神角色查询）、网页云玩播放器、登录/OAuth 页。
+  /** 纯 Web 体验页：poster 活动页（如原神角色查询）、登录/OAuth 页。
    * 伪装 UA 会命中页面的“App 内”分支，走客户端专属桥导致无法进入/无按钮；
-   * 进入时临时摘除 TapTap 标识按普通浏览器加载，离开发自动恢复 */
+   * 进入时临时摘除 TapTap 标识按普通浏览器加载，离开发自动恢复。
+   * v1.7.3：/web-cloud-game 回退——网页云玩按钮数据依赖登录态且体验不稳，不再特殊路由 */
   private isWebOnlyUrl(url: string): boolean {
     try {
       const hostStart = (url || '').indexOf('//');
@@ -1649,7 +1650,7 @@ struct Index {
       }
       const pathStart = url.indexOf('/', url.indexOf('//') + 2);
       const path = pathStart >= 0 ? url.substring(pathStart) : '';
-      return path.indexOf('/poster/') >= 0 || path.indexOf('/web-cloud-game') >= 0 ||
+      return path.indexOf('/poster/') >= 0 ||
         path.indexOf('/login') >= 0 || path.indexOf('/oauth') >= 0;
     } catch (err) {
       return false;
