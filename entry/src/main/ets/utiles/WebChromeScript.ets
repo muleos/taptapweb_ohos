@@ -585,5 +585,147 @@ export const WEB_CHROME_SCRIPT: string = `
     } catch (err) { }
   }, true);
 })();
+;(function () {
+  // 礼包兑换码领取修复：官方网页端礼包卡片「领取」按钮移动端无点击处理、桌面端仅弹
+  // 「请到 TapTap 客户端领取」对话框（即用户看到的跳转 app 提示）。但领取接口
+  // POST /webapiv2/app/v1/game-number/delivery-for-hoverboard（参数 id=礼包id，CSRF 用
+  // XSRF-TOKEN Cookie 双提交 x-xsrf-token 头）在登录态下同源可调。礼包数据来自
+  // GET /webapiv2/app-news/v1/list?app_id=... 的 activity_list[].game_number_list。
+  // 仅拦截礼包卡片（gift-item 胶囊 / 含"礼包兑换码"文案 / gifts-news-item 行），
+  // 签到、活动等其他卡片不受影响。
+  if ((location.hostname || '').indexOf('taptap') < 0) { return; }
+  if (window.__ttwGiftClaimInstalled) { return; }
+  window.__ttwGiftClaimInstalled = 1;
+  function ttwCookie(name) {
+    var m = document.cookie.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]*)'));
+    return m ? m[1] : '';
+  }
+  function ttwToast(msg) {
+    try {
+      var t = document.createElement('div');
+      t.textContent = msg;
+      t.style.cssText = 'position:fixed;left:50%;bottom:20%;transform:translateX(-50%);z-index:2147483647;background:rgba(0,0,0,.75);color:#fff;padding:10px 16px;border-radius:8px;font-size:14px;max-width:80vw;text-align:center;';
+      document.body.appendChild(t);
+      setTimeout(function () { t.remove(); }, 2600);
+    } catch (e0) { }
+  }
+  function ttwCopy(text) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text); return; }
+    } catch (e1) { }
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+    } catch (e2) { }
+  }
+  function ttwShowCode(label, sn) {
+    try {
+      var ov = document.createElement('div');
+      ov.style.cssText = 'position:fixed;left:0;top:0;right:0;bottom:0;z-index:2147483646;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;';
+      var box = document.createElement('div');
+      box.style.cssText = 'background:#fff;border-radius:12px;padding:20px;width:78vw;max-width:340px;text-align:center;';
+      var h = document.createElement('div');
+      h.textContent = label || '礼包兑换码';
+      h.style.cssText = 'font-size:16px;font-weight:700;color:#222;margin-bottom:10px;';
+      var code = document.createElement('div');
+      code.textContent = sn;
+      code.style.cssText = 'font-size:18px;font-weight:700;color:#ff6b00;letter-spacing:1px;margin-bottom:14px;word-break:break-all;';
+      var row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:10px;justify-content:center;';
+      var cp = document.createElement('button');
+      cp.textContent = '复制兑换码';
+      cp.style.cssText = 'flex:1;padding:10px 0;border:none;border-radius:8px;background:#00c3a0;color:#fff;font-size:14px;';
+      cp.onclick = function () { ttwCopy(sn); ttwToast('已复制'); };
+      var cl = document.createElement('button');
+      cl.textContent = '关闭';
+      cl.style.cssText = 'flex:1;padding:10px 0;border:none;border-radius:8px;background:#f2f2f2;color:#333;font-size:14px;';
+      cl.onclick = function () { ov.remove(); };
+      row.appendChild(cp);
+      row.appendChild(cl);
+      box.appendChild(h);
+      box.appendChild(code);
+      box.appendChild(row);
+      ov.appendChild(box);
+      document.body.appendChild(ov);
+    } catch (e3) { }
+  }
+  function ttwXua() {
+    var uid = ttwCookie('web_app_uuid') || 'd8f3a1c2b4e54f6789a0b1c2d3e4f5a6';
+    return 'V=1&PN=Web&LANG=zh_CN&VN_CODE=100000000&LOC=CN&PLT=Android&DS=Android&UID=' + uid + '&OS=Android&OSV=14';
+  }
+  function ttwApi(path, opts) {
+    var q = path + (path.indexOf('?') >= 0 ? '&' : '?') + 'X-UA=' + encodeURIComponent(ttwXua());
+    return fetch(q, opts || {}).then(function (r) { return r.json(); });
+  }
+  function ttwClaimGift(cardText) {
+    var m = location.pathname.match(/\/app\/(\d+)/);
+    var appId = m ? m[1] : '';
+    if (!appId) { ttwToast('请在游戏详情页领取礼包'); return; }
+    ttwToast('正在领取礼包…');
+    ttwApi('/webapiv2/app-news/v1/list?app_id=' + appId + '&preview=false').then(function (j) {
+      var list = (j && j.data && j.data.activity_list) || [];
+      var gifts = [];
+      list.forEach(function (it) {
+        if ((it.label_type === 'gift' || it.type === 'gift') && it.game_number_list) {
+          it.game_number_list.forEach(function (g) { gifts.push(g); });
+        }
+      });
+      if (!gifts.length) { ttwToast('当前没有可领取的礼包'); return; }
+      var target = null;
+      gifts.forEach(function (g) { if (!target && g.label && cardText.indexOf(g.label) >= 0) { target = g; } });
+      if (!target) { gifts.forEach(function (g) { if (!target && !g.sn) { target = g; } }); }
+      if (!target) { target = gifts[0]; }
+      if (target.sn) { ttwShowCode(target.label, target.sn); return; }
+      var headers = { 'Content-Type': 'application/x-www-form-urlencoded', 'x-requested-with': 'XMLHttpRequest' };
+      var xsrf = ttwCookie('XSRF-TOKEN');
+      if (xsrf) { headers['x-xsrf-token'] = xsrf; }
+      ttwApi('/webapiv2/app/v1/game-number/delivery-for-hoverboard', {
+        method: 'POST',
+        headers: headers,
+        body: 'id=' + target.id
+      }).then(function (j2) {
+        if (j2 && j2.success) {
+          ttwApi('/webapiv2/app-news/v1/list?app_id=' + appId + '&preview=false').then(function (j3) {
+            var sn = '';
+            ((j3 && j3.data && j3.data.activity_list) || []).forEach(function (it) {
+              (it.game_number_list || []).forEach(function (g) {
+                if (g.id === target.id && g.sn) { sn = g.sn; }
+              });
+            });
+            if (sn) { ttwShowCode(target.label, sn); } else { ttwToast('领取成功，可在游戏内兑换'); }
+          }).catch(function () { ttwToast('领取成功'); });
+        } else {
+          var msg = (j2 && j2.data && j2.data.msg) || '';
+          ttwToast(msg || '领取失败，请先在设置中登录');
+        }
+      }).catch(function () { ttwToast('领取失败，请确认已登录'); });
+    }).catch(function () { ttwToast('活动数据加载失败'); });
+  }
+  document.addEventListener('click', function (e) {
+    try {
+      if (location.pathname.indexOf('/app/') !== 0) { return; }
+      var el = e.target;
+      for (var i = 0; el && i < 10; i++, el = el.parentElement) {
+        var cls = ' ' + (typeof el.className === 'string' ? el.className : '') + ' ';
+        var isNewsCard = cls.indexOf(' news-card-item ') >= 0;
+        var isGiftRow = cls.indexOf(' gifts-news-item ') >= 0;
+        if (!isNewsCard && !isGiftRow) { continue; }
+        // 已展示兑换码的行（含复制按钮）不拦截，避免破坏复制操作
+        if (isGiftRow && el.querySelector('.gifts-news-item__sn')) { return; }
+        var text = String(el.textContent || '');
+        var isGift = cls.indexOf(' gift-item ') >= 0 || text.indexOf('礼包兑换码') >= 0 || isGiftRow;
+        if (!isGift) { return; }
+        e.preventDefault();
+        e.stopPropagation();
+        ttwClaimGift(text.replace(/\\s+/g, ''));
+        return;
+      }
+    } catch (err) { }
+  }, true);
+})();
 //# sourceURL=ttw-web-chrome.js
 `;
