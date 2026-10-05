@@ -155,7 +155,8 @@ export const WEB_CHROME_SCRIPT: string = `
 
   window.addEventListener('load', function () { scheduleTheme(); });
   window.addEventListener('pageshow', function () { scheduleTheme(); });
-  setInterval(scheduleTheme, 2000);
+  // 页面不可见时跳过采样，降低后台 CPU/电量开销
+  setInterval(function () { if (!document.hidden) { scheduleTheme(); } }, 2000);
   scheduleTheme();
 })();
 ;(function () {
@@ -240,7 +241,8 @@ export const WEB_CHROME_SCRIPT: string = `
   } catch (e) { }
   window.addEventListener('load', scheduleHide);
   window.addEventListener('pageshow', scheduleHide);
-  setInterval(hideTaptapPromos, 1500);
+  // 页面不可见时跳过扫描，降低后台 CPU 开销
+  setInterval(function () { if (!document.hidden) { hideTaptapPromos(); } }, 1500);
   scheduleHide();
 })();
 ;(function () {
@@ -359,6 +361,23 @@ export const WEB_CHROME_SCRIPT: string = `
     return t.replace(/\\s+/g, '');
   }
 
+  // 组合容器判定：元素含多个各自带文字的直接子节点（如底部条"论坛|活动|打开App关注游戏"）。
+  // 这类容器的合并文案即使命中引导词，也只拦截其中的引导按钮本体，不能整条去点击化——
+  // 否则会误伤同条内的论坛/活动等正常功能入口（v1.7.3 回归原因）
+  function ttwIsComposite(el) {
+    try {
+      var kids = el.children || [];
+      var withText = 0;
+      for (var k = 0; k < kids.length; k++) {
+        if ((kids[k].textContent || '').replace(/\\s+/g, '')) {
+          withText++;
+          if (withText >= 2) { return true; }
+        }
+      }
+    } catch (e) { }
+    return false;
+  }
+
   document.addEventListener('click', function (e) {
     try {
       if ((location.hostname || '').indexOf('taptap') < 0) { return; }
@@ -373,7 +392,8 @@ export const WEB_CHROME_SCRIPT: string = `
           hit = true;
         } else if (text.length <= 16 &&
                    (text.indexOf('打开App') >= 0 || text.indexOf('打开APP') >= 0 ||
-                    text.indexOf('打开TapTap') >= 0 || text.indexOf('TapTap内打开') >= 0)) {
+                    text.indexOf('打开TapTap') >= 0 || text.indexOf('TapTap内打开') >= 0) &&
+                   !ttwIsComposite(el)) {
           hit = true;
         }
         if (hit) {

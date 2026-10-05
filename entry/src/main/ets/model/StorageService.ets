@@ -129,3 +129,15 @@ export async function getBottomLift(): Promise<string> {
   const store = await getPreferences();
   return String(await store.get('bottom_lift', ''));
 }
+
+// Cookie 登录（v1.7.4）：持久化用户粘贴的网页版 Cookie 串，启动时重放进 WebView CookieStore
+export async function saveWebCookie(v: string) {
+  const store = await getPreferences();
+  await store.put('web_cookie', v);
+  await store.flush();
+}
+
+export async function getWebCookie(): Promise<string> {
+  const store = await getPreferences();
+  return String(await store.get('web_cookie', ''));
+}

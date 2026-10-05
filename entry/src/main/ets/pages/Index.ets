@@ -23,7 +23,9 @@ import {
   getWebDarkMode,
   saveFakeAppUa,
   saveBottomLift,
-  getBottomLift
+  getBottomLift,
+  saveWebCookie,
+  getWebCookie
 } from '../model/StorageService';
 import { DownloadConfirmDialog } from '../component/DownloadConfirmDialog'
 import { IAbstractDownloadHandler } from '../delegate/IWebDownloadFile'
@@ -75,19 +77,6 @@ function copyLocalPicFilesDir(rawfilePath: string, newFileName: string): string 
   return dest.path;
 }
 
-async function copyUrlPicToFilesDir(picUrl: string, newFileName: string): Promise<string> {
-  let uri = '';
-  //读取网络图片并保存到沙箱路径下
-  let httpRequest = http.createHttp();
-  let data: http.HttpResponse = await (httpRequest.request(picUrl) as Promise<http.HttpResponse>);
-  if (data?.responseCode == http.ResponseCode.OK) {
-    let dstPath = context.filesDir + "/" + newFileName;
-    let dest: fs.File = fs.openSync(dstPath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE)
-    let writeLen: number = fs.writeSync(dest.fd, data.result as ArrayBuffer);
-    uri = dest.path;
-  }
-  return uri;
-}
 
 
 
@@ -95,7 +84,6 @@ async function copyUrlPicToFilesDir(picUrl: string, newFileName: string): Promis
 @Component
 struct Index {
   private isRefreshing: boolean = false;
-  private contextmenu_result: WebContextMenuResult | undefined = undefined;
   @State controller: webview.WebviewController = new webview.WebviewController();
   @State webDownloadFile: IAbstractDownloadHandler = new WebDownloadFileHelper()
   downloadWebLoading: CustomDialogController = new CustomDialogController({
@@ -107,127 +95,14 @@ struct Index {
     isModal: false
   })
 
-  saveButtonOptions: SaveButtonOptions = {
-    icon: SaveIconStyle.FULL_FILLED,
-    text: SaveDescription.SAVE_IMAGE,
-    buttonType: ButtonType.Capsule
-  } // 设置安全控件按钮属性
-  private result: WebContextMenuResult | undefined = undefined;
-  @State linkUrl: string = '';
-  @State imgUrl: string = '';
-  @State offsetX: number = 0;
-  @State offsetY: number = 0;
-  @State showMenu: boolean = false;
-  @State pic_w:number|undefined = 0;
-  @State pic_h:number|undefined = 0;
-  @State pic_dl_show:Visibility = Visibility.Hidden;
   private shouldClearCache: boolean = false;
-  @Builder
-  //构建自定义菜单及触发功能接口
-  MenuBuilder() {
-    Column() {
-      Row()
-        .height(10)
-      Row(){
-        Text('是否保存至图库')
-          .fontColor($r('app.color.dialog_text'))
-          .fontSize(18)
-      }
-      Row(){
-        //Text(this.imgUrl)
-      }
-        .height(10)
-      Row(){
-        Image(this.imgUrl)
-          .onComplete((event) => {
-            this.pic_w = event?.width;
-            this.pic_h = event?.height;
-            this.pic_dl_show = Visibility.Visible;
-            })
-          .onError(()=>{
-            this.showMenu=false;
-            this.pic_dl_show = Visibility.Hidden;
-          })
-          .width('80%')
-          .backgroundColor($r('app.color.panel_bg'))
-          .borderRadius(15)
-          .objectFit(ImageFit.ScaleDown)
-          .constraintSize({maxHeight: '50%',maxWidth:'80%'})
-      }
-      //.constraintSize({maxHeight: '50%',maxWidth:'80%'})
-
-      Row() {
-        Button("取消").onClick((event: ClickEvent) => {
-          this.showMenu = false;
-          this.pic_dl_show = Visibility.Hidden;
-        })
-          .height(32)
-          .backgroundColor($r('app.color.ctx_menu_bg'))
-        Text()
-          .width(10)
-        SaveButton(this.saveButtonOptions) // 创建安全控件按钮。
-          .onClick(async (event, result: SaveButtonOnClickResult) => {
-            if (result == SaveButtonOnClickResult.SUCCESS) {
-              try {
-                let context = getContext();
-                let phAccessHelper = photoAccessHelper.getPhotoAccessHelper(context);
-                let uri = '';
-                //复制图片到应用沙箱目录下，并获取uri
-                if (this.imgUrl?.includes('rawfile')) {
-                  let rawFileName: string = this.imgUrl.substring(this.imgUrl.lastIndexOf('/') + 1);
-                  console.info(TAG, `rawfileName ${rawFileName}`)
-                  uri = copyLocalPicFilesDir(rawFileName, 'copyFile.png');
-                } else if (this.imgUrl?.includes('http') || this.imgUrl?.includes('https')) { // 针对http|https 协议的网络图片
-                  uri = await copyUrlPicToFilesDir(this.imgUrl, `onlinePic_${systemDateTime.getTime()}.png`)
-                }
-                let assetChangeRequest: photoAccessHelper.MediaAssetChangeRequest = photoAccessHelper.MediaAssetChangeRequest.createImageAssetRequest(context, uri);
-                await phAccessHelper.applyChanges(assetChangeRequest);
-                console.info('createAsset successfully, uri: ' + assetChangeRequest.getAsset().uri);
-                this.showMenu = false;
-              } catch (err) {
-                console.error(`create asset failed with error: ${err.code}, ${err.message}`);
-                //this.showMenu = false;
-              }
-            } else {
-              console.error('SaveButtonOnClickResult create asset failed');
-              //this.showMenu = false;
-            }
-            //this.showMenu = false;
-          })
-      }
-      .height(32)
-      .margin({ top: 20, bottom: 20 })
-      .justifyContent(FlexAlign.Center)
-    }
-    .width('80%')
-    .backgroundColor($r('app.color.ctx_menu_bg'))
-    .borderRadius(10)
-    .visibility(this.pic_dl_show)
-  }
-
-
-
-  async saveBase64Image(base64Str:string) {
-
-    try {
-      const context = getContext(this);
-      let helper = photoAccessHelper.getPhotoAccessHelper(context);
-      let uri = await helper.createAsset(photoAccessHelper.PhotoType.IMAGE, 'png')
-      let imageStr = base64Str.split(',')[1];
-      //打开文件
-      let file = fs.openSync(uri, fs.OpenMode.READ_WRITE);
-      //base64字符串转成buffer
-      const decodeBuffer = buffer.from(imageStr, 'base64').buffer;
-      //写入文件
-      fs.writeSync(file.fd, decodeBuffer);
-      //关闭文件
-      fs.closeSync(file);
-
-    } catch (e) {
-      console.error(e);
-    }
-  }
-
+  // Cookie 登录（v1.7.4）：设置面板粘贴网页版 Cookie 写入 WebView CookieStore
+  @State savedCookie: string = '';
+  @State cookieInput: string = '';
+  private cookiePending: boolean = false;
+  // 启动性能：Web 首帧 src 用普通属性（非 @State），偏好设置晚于首帧就绪时不再触发二次加载
+  private firstSrc: string = 'https://www.taptap.cn/';
+  private webReady: boolean = false;
   @State refreshing: boolean = false
   @State list: number[] = Array(20).fill(Date.now())
   @State is_home: boolean = false;
@@ -452,29 +327,42 @@ struct Index {
         this.downloadWebLoading.close()
       }
     })
-    this.isLSRefresh = await getLSRefresh() || this.isLSRefresh;
-    this.c_pg_ua = await getUserAgent() || this.c_pg_ua;
-    this.c_ua_temp = await getUserAgent() || this.c_pg_ua;
-    this.saved_home_url = await getHomeUrl() || this.saved_home_url;
-    this.isHidebar = (await getIshidebar() || this.isHidebar);
-    this.isHidestatus = (await getIshidestatus() || this.isHidestatus);
-    this.ua_type = (await getUserAgentType() || this.ua_type);
+    // 启动性能：偏好读取并行化（原先 12 次串行 await，每次都阻塞一帧）
+    const slidePromise = getSlidenum();
+    const prefs: string[] = await Promise.all([
+      getLSRefresh(), getUserAgent(), getHomeUrl(), getIshidebar(), getIshidestatus(),
+      getUserAgentType(), getIsfull(), getWebDarkMode(), getBottomLift(), getWebCookie()
+    ]);
+    const slideN: number = await slidePromise;
+    this.isLSRefresh = prefs[0] || this.isLSRefresh;
+    this.c_pg_ua = prefs[1] || this.c_pg_ua;
+    this.c_ua_temp = prefs[1] || this.c_pg_ua;
+    this.saved_home_url = prefs[2] || this.saved_home_url;
+    this.isHidebar = (prefs[3] || this.isHidebar);
+    this.isHidestatus = (prefs[4] || this.isHidestatus);
+    this.ua_type = (prefs[5] || this.ua_type);
     // 伪装 TapTap 客户端：设置面板开关已移除（v1.7.0），功能恒为默认开启；
     // 旧版本存过 'false' 的用户在此强制纠正，保证签到/云玩等 inApp 流程可用
     this.fakeAppUa = 'true';
     saveFakeAppUa('true');
-    this.isFull = (await getIsfull() || this.isFull);
-    this.slide_num = (await getSlidenum() || this.slide_num);
-    this.webDark = (await getWebDarkMode() || this.webDark);
+    this.isFull = (prefs[6] || this.isFull);
+    this.slide_num = slideN || this.slide_num;
+    this.webDark = (prefs[7] || this.webDark);
     // 底栏抬高设置值(0-30vp)：默认 28，超界纠正
-    const savedLift = Number(await getBottomLift() || '');
+    const savedLift = Number(prefs[8] || '');
     this.bottomLiftSetting = isNaN(savedLift)
       ? 28
       : Math.max(0, Math.min(30, Math.round(savedLift)));
-    // 开启预连接需要先使用上述方法预加载WebView内核。
-    //webview.WebviewController.initializeWebEngine();
-    // 启动预连接，连接地址为即将打开的网址。
-    //webview.WebviewController.prepareForPageLoad(this.saved_home_url, true, 2);
+    // Cookie 登录：内核已在 EntryAbility 预热，首帧加载前写入可随首个请求生效；
+    // 写入失败（内核未就绪）时置 pending，由 onControllerAttached 补写并刷新一次
+    this.savedCookie = (prefs[9] || '').trim();
+    if (this.savedCookie !== '' && !this.applyWebCookie()) {
+      this.cookiePending = true;
+    }
+    // 启动性能：首帧 src 尚未被消费时直接用真实首页，避免"先默认页再跳转"的二次加载
+    if (!this.webReady && this.saved_home_url) {
+      this.firstSrc = this.saved_home_url;
+    }
 
     setTimeout(() => {
       this.backToHome();
@@ -597,7 +485,7 @@ struct Index {
       Refresh({ refreshing: $$this.refreshing, builder: this.content() }) {
         NavDestination() {
           Column() {
-            Web({ src: this.saved_home_url, controller: this.controller })
+            Web({ src: this.firstSrc, controller: this.controller })
               .onControllerAttached(() => {
                 this.controller.setNetworkAvailable(true);
                 this.webDownloadFile.setDownloadDelegate(this.controller);
@@ -614,46 +502,20 @@ struct Index {
                 } catch (error) {
                   console.error(`ErrorCode: ${(error as BusinessError).code},  Message: ${(error as BusinessError).message}`);
                 }
-              })
-              .onContextMenuShow((event) => {
-                  this.result = event.result
-                  this.linkUrl = event.param.getLinkUrl();
-                  this.imgUrl = event.param.getSourceUrl();
-                  let hitValue = this.controller.getHitTestValue()
-                  let img64 = hitValue.extra
-                if(this.imgUrl==''&&img64!=''){
-                  this.imgUrl = img64
-                }
-                //this.linkUrl = this.imgUrl
-                let mediaType = event.param.getMediaType()
-                if (mediaType === ContextMenuMediaType.Image) {
-                  if(this.imgUrl.startsWith("data:image")) {
-                    //this.saveBase64Image(img64);
-                  }else{
-                    if(this.imgUrl != '') {
-                      this.showMenu = true;
-                      this.pic_dl_show = Visibility.Hidden;
-                    }
+                // Cookie 登录兜底：aboutToAppear 时内核未就绪导致写入失败的，这里补写并刷新一次
+                // （仅在用户配置了 Cookie 且首轮写入失败时才产生一次重载）
+                if (this.cookiePending) {
+                  this.cookiePending = false;
+                  if (this.applyWebCookie()) {
+                    setTimeout(() => {
+                      try {
+                        this.controller.refresh();
+                      } catch (err) {
+                      }
+                    }, 300);
                   }
                 }
-
-                //this.offsetX = 0;
-                //this.offsetY = Math.max(px2vp(event?.param.y() ?? 0) - 0, 0);
-                return true;
               })
-              .bindPopup(this.showMenu,
-                {
-                  builder: this.MenuBuilder(),
-                  enableArrow: false,
-                  placement: Placement.LeftTop,
-                  offset: { x: this.offsetX, y: this.offsetY },
-                  mask: false,
-                  onStateChange: (e) => {
-                    if (!e.isVisible) {
-                      this.showMenu = false;
-                    }
-                  }
-                })
               //.cacheMode(CacheMode.Online)
               .domStorageAccess(true)
               //.multiWindowAccess(true)
@@ -1154,7 +1016,7 @@ struct Index {
             .height(30)
 
           Row() {
-            Text("Version:1.7.3")
+            Text("Version:1.7.4")
               .fontColor($r('app.color.dialog_text_secondary'))
               .width('100%')
               .textAlign(TextAlign.Center)
@@ -1163,6 +1025,54 @@ struct Index {
 
           Row()
             .height(20)
+
+          // 登录 Cookie（v1.7.4）：粘贴网页版 Cookie 写入 WebView CookieStore 获取登录态，
+          // 替代 v1.7.1 的"登录 TapTap"跳转按钮（云玩按钮数据/第三方工具授权都依赖登录态）
+          Row() {
+            Text('登录 Cookie')
+              .fontColor($r('app.color.dialog_text'))
+              .width('30%')
+              .height(40)
+            TextInput({
+              placeholder: '粘贴网页版 Cookie',
+              text: this.cookieInput
+            })
+              .height(40)
+              .layoutWeight(1)
+              .fontSize(13)
+              .onChange((value: string) => {
+                this.cookieInput = value;
+              })
+
+            Button('应用')
+              .type(ButtonType.Capsule)
+              .backgroundColor($r('app.color.dialog_text_secondary'))
+              .margin({ left: 8 })
+              .height(40)
+              .width(72)
+              .onClick(() => {
+                const raw = (this.cookieInput || '').trim();
+                if (raw === '') {
+                  promptAction.showToast({ message: '请先粘贴 Cookie 串' });
+                  return;
+                }
+                this.savedCookie = raw;
+                saveWebCookie(raw);
+                const ok = this.applyWebCookie();
+                this.showSetting = false;
+                if (ok) {
+                  promptAction.showToast({ message: 'Cookie 已写入，刷新登录态' });
+                  this.refreshWeb();
+                } else {
+                  this.cookiePending = true;
+                  promptAction.showToast({ message: '内核未就绪，页面加载时自动重试' });
+                }
+              })
+          }
+          .width('100%')
+
+          Row()
+            .height(16)
 
           Row() {
             Button('返回')
@@ -1176,18 +1086,6 @@ struct Index {
               })
               .height(40)
               .width(100)
-            // 登录 TapTap：云玩按钮数据、工具箱第三方工具授权都依赖网页登录态；
-            // /login 走纯浏览器 UA（isWebOnlyUrl），网页版支持手机验证码登录
-            Button('登录 TapTap')
-              .type(ButtonType.Capsule)
-              .backgroundColor($r('app.color.dialog_text_secondary'))
-              .margin({ left: 16 })
-              .onClick(() => {
-                this.showSetting = false;
-                this.controller.loadUrl('https://www.taptap.cn/login');
-              })
-              .height(40)
-              .width(130)
           }
 
         }
@@ -1309,8 +1207,50 @@ struct Index {
 
   // 返回首页
   backToHome() {
-    // 这里可以改为你的首页路由
-    this.controller.loadUrl(this.saved_home_url);
+    // 启动性能：当前已在目标首页（首帧 src 命中）时跳过，避免同 URL 重复加载
+    try {
+      const target = this.saved_home_url || 'https://www.taptap.cn/';
+      let current = '';
+      try {
+        current = this.controller.getUrl() || '';
+      } catch (e) {
+        current = '';
+      }
+      if (current !== '' && current === target) {
+        return;
+      }
+      this.controller.loadUrl(target);
+    } catch (err) {
+    }
+  }
+
+  /** Cookie 登录（v1.7.4）：把用户粘贴的网页版 Cookie 串逐对写入
+   * taptap.cn / accounts.taptap.cn 域，写入后随请求自动携带。
+   * 返回是否成功写入；串为空返回 false（不置 pending） */
+  private applyWebCookie(): boolean {
+    const raw = (this.savedCookie || '').trim();
+    if (raw === '') {
+      return false;
+    }
+    let ok = false;
+    try {
+      const parts = raw.split(';');
+      for (let i = 0; i < parts.length; i++) {
+        const kv = parts[i].trim();
+        if (kv.indexOf('=') <= 0) {
+          continue;
+        }
+        try {
+          webview.WebCookieManager.configCookieSync('https://www.taptap.cn', kv);
+          webview.WebCookieManager.configCookieSync('https://accounts.taptap.cn', kv);
+          ok = true;
+        } catch (err) {
+        }
+      }
+    } catch (e) {
+      return false;
+    }
+    return ok;
   }
 
   // 用系统/外部应用打开非网页协议链接（如应用深链 taptap:// 等）

@@ -5,7 +5,9 @@
 import { http } from '@kit.NetworkKit';
 import { fileIo, fileUri } from '@kit.CoreFileKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
+import { picker } from '@kit.CoreFileKit';
 import { pasteboard } from '@kit.BasicServicesKit';
+import { BusinessError } from '@kit.BasicServicesKit';
 import { common } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
 
@@ -13,35 +15,64 @@ const MAX_BYTES: number = 30 * 1024 * 1024;
 
 export class WebImageSaver {
 
-  /** 长按图片 -> 保存到系统图库（走系统安全组件弹窗，无需敏感权限） */
+  /** 长按图片 -> 保存到系统图库（走系统安全控件弹窗，无需敏感权限；失败回退系统保存选择器） */
   static async saveToGallery(context: common.UIAbilityContext, url: string,
     referer: string, cookie: string, userAgent: string): Promise<void> {
     try {
       const data: ArrayBuffer = await WebImageSaver.fetchImage(url, referer, cookie, userAgent);
+      if (!data || data.byteLength === 0) {
+        promptAction.showToast({ message: '保存失败：图片内容为空' });
+        return;
+      }
       const ext: string = WebImageSaver.sniffExtension(data, url);
       const tempPath: string = await WebImageSaver.writeToCache(context, data, ext);
 
-      const helper: photoAccessHelper.PhotoAccessHelper =
-        photoAccessHelper.getPhotoAccessHelper(context);
-      const assetUri: string = fileUri.getUriFromPath(tempPath);
-      const config: photoAccessHelper.PhotoCreationConfig = {
-        title: 'TapTapWeb_' + Date.now(),
-        fileNameExtension: ext,
-        photoType: photoAccessHelper.PhotoType.IMAGE
-      };
-      const created: string[] =
-        await helper.showAssetsCreationDialog([assetUri], [config]);
-      if (created && created.length > 0) {
-        const targetUri: string = created[0];
-        const targetFile = fileIo.openSync(targetUri, fileIo.OpenMode.READ_WRITE);
-        fileIo.writeSync(targetFile.fd, new Uint8Array(data));
-        fileIo.closeSync(targetFile);
-        promptAction.showToast({ message: '已保存到图库' });
-      } else {
-        promptAction.showToast({ message: '已取消保存' });
+      try {
+        // 首选：安全控件创建对话框（免权限，写完即入图库）
+        const helper: photoAccessHelper.PhotoAccessHelper =
+          photoAccessHelper.getPhotoAccessHelper(context);
+        const assetUri: string = fileUri.getUriFromPath(tempPath);
+        const config: photoAccessHelper.PhotoCreationConfig = {
+          title: 'TapTapWeb_' + Date.now(),
+          fileNameExtension: ext,
+          photoType: photoAccessHelper.PhotoType.IMAGE
+        };
+        const created: string[] =
+          await helper.showAssetsCreationDialog([assetUri], [config]);
+        if (created && created.length > 0) {
+          const targetUri: string = created[0];
+          const targetFile = fileIo.openSync(targetUri, fileIo.OpenMode.READ_WRITE);
+          fileIo.writeSync(targetFile.fd, new Uint8Array(data));
+          fileIo.closeSync(targetFile);
+          promptAction.showToast({ message: '已保存到图库' });
+        } else {
+          promptAction.showToast({ message: '已取消保存' });
+        }
+      } catch (dialogErr) {
+        // 回退：系统"保存图片"选择器（用户选位置后写入，同样免权限）
+        try {
+          const saveOptions = new picker.PhotoSaveOptions();
+          saveOptions.newFileNames = ['TapTapWeb_' + Date.now() + '.' + ext];
+          const viewPicker = new picker.PhotoViewPicker();
+          const uris: Array<string> = await viewPicker.save(saveOptions);
+          if (uris && uris.length > 0) {
+            const targetFile = fileIo.openSync(uris[0], fileIo.OpenMode.READ_WRITE);
+            fileIo.writeSync(targetFile.fd, new Uint8Array(data));
+            fileIo.closeSync(targetFile);
+            promptAction.showToast({ message: '已保存' });
+          } else {
+            promptAction.showToast({ message: '已取消保存' });
+          }
+        } catch (pickErr) {
+          const pe = pickErr as BusinessError;
+          const msg: string = (pe && pe.message) ? pe.message : '未知错误';
+          promptAction.showToast({ message: '保存失败：' + msg });
+        }
       }
     } catch (err) {
-      promptAction.showToast({ message: '保存失败：图片无法获取' });
+      const be = err as BusinessError;
+      const msg: string = (be && be.message) ? be.message : '图片无法获取';
+      promptAction.showToast({ message: '保存失败：' + msg });
     }
   }
 

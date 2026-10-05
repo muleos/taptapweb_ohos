@@ -2,11 +2,21 @@ import { AbilityConstant, ConfigurationConstant, UIAbility, Want, Configuration 
 import { EmitterUtil } from '../utiles/EmitterUtil'
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
+import { webview } from '@kit.ArkWeb';
+import { preferences } from '@kit.ArkData';
 
 const DOMAIN = 0x0000;
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET);
+    // 启动性能：最早时机预热 WebView 内核并预连接首页，压缩首屏白屏时间
+    try {
+      webview.WebviewController.initializeWebEngine();
+      const pref = preferences.getPreferencesSync(this.context, { name: 'app_config' });
+      const home = String(pref.getSync('homepage_url', '')) || 'https://www.taptap.cn/';
+      webview.WebviewController.prepareForPageLoad(home, true, 2);
+    } catch (err) {
+    }
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onCreate');
   }
 
