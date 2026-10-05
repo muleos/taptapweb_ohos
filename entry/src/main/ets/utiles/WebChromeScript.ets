@@ -434,6 +434,18 @@ export const WEB_CHROME_SCRIPT: string = `
         if (dec.indexOf('http') === 0) { t.web_url = dec; return; }
       } catch (e1) { }
     }
+    // 角色查询类深链（game_record/detail）：还原成网页版数据页
+    // /user/<uid>/game-record/<app_id>（uid 在登录后由主站种在 user_id Cookie）；
+    // 未登录则引导到登录页（不能用 app_id 降级为详情页，那不是数据页）
+    if (u.indexOf('game_record/detail') >= 0) {
+      var gm = u.match(/[?&]app_id=(\\d+)/);
+      if (gm) {
+        var um = document.cookie.match(/(?:^|;\\s*)user_id=(\\d+)/);
+        t.web_url = um ? ('https://www.taptap.cn/user/' + um[1] + '/game-record/' + gm[1])
+                       : 'https://www.taptap.cn/login';
+        return;
+      }
+    }
     var a = u.match(/[?&]app_id=(\\d+)/);
     if (a) { t.web_url = 'https://www.taptap.cn/app/' + a[1]; return; }
     var p = u.match(/[?&]path=([^&]+)/);
@@ -523,6 +535,55 @@ export const WEB_CHROME_SCRIPT: string = `
       return null;
     };
   } catch (e) { }
+})();
+;(function () {
+  // game-record 海报页修复：官方「前往查看」按钮的处理函数以 IS_IN_TAPTAP 为前提，
+  // 纯浏览器/壳内环境点击无任何动作（官方网页端即如此）；其本应去往的网页版数据页为
+  // /user/<uid>/game-record/<app_id>，uid 可从登录后的 user_id Cookie 取得。
+  // 仅作用于 /poster/game-record/ 路径，避免影响其他活动海报的正常按钮。
+  if ((location.hostname || '').indexOf('taptap') < 0) { return; }
+  if (window.__ttwPosterRecordFixInstalled) { return; }
+  window.__ttwPosterRecordFixInstalled = 1;
+  function ttwGoGameRecord() {
+    try {
+      var app = '';
+      try {
+        app = String((window.moo && window.moo.getLocaleMessage && window.moo.getLocaleMessage('custom.app_id')) || '');
+      } catch (e0) { }
+      if (!app && window.moo && window.moo.dataPool && window.moo.dataPool.__default) {
+        try {
+          app = String(window.moo.dataPool.__default.custom.app_id || '');
+        } catch (e1) { }
+      }
+      var um = document.cookie.match(/(?:^|;\\s*)user_id=(\\d+)/);
+      if (um && app) {
+        window.location.href = 'https://www.taptap.cn/user/' + um[1] + '/game-record/' + app;
+        return;
+      }
+      window.location.href = 'https://www.taptap.cn/login';
+    } catch (e2) { }
+  }
+  document.addEventListener('click', function (e) {
+    try {
+      if (location.pathname.indexOf('/poster/game-record/') !== 0) { return; }
+      var el = e.target;
+      for (var i = 0; el && i < 8; i++, el = el.parentElement) {
+        var t = String(el.textContent || '').replace(/\\s+/g, '');
+        if (t === '前往查看') {
+          e.preventDefault();
+          e.stopPropagation();
+          ttwGoGameRecord();
+          return;
+        }
+        if (t === '登录去查看') {
+          e.preventDefault();
+          e.stopPropagation();
+          window.location.href = 'https://www.taptap.cn/login';
+          return;
+        }
+      }
+    } catch (err) { }
+  }, true);
 })();
 //# sourceURL=ttw-web-chrome.js
 `;

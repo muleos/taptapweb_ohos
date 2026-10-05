@@ -102,6 +102,9 @@ struct Index {
   private cookiePending: boolean = false;
   // 启动性能：Web 首帧 src 用普通属性（非 @State），偏好设置晚于首帧就绪时不再触发二次加载
   private firstSrc: string = 'https://www.taptap.cn/';
+  // 首页信息流缓存（v1.7.6）：上次存盘的首页 HTML，启动时打底渲染减少闪烁；空串表示无缓存
+  private homeCacheHtml: string = '';
+  private captureHomeCacheTimerId: number | null = null;
   private webReady: boolean = false;
   @State refreshing: boolean = false
   @State list: number[] = Array(20).fill(Date.now())
@@ -363,6 +366,26 @@ struct Index {
     if (!this.webReady && this.saved_home_url) {
       this.firstSrc = this.saved_home_url;
     }
+    // 首页信息流缓存（v1.7.6）：同步读上次存盘的首页 HTML（限 20KB~8MB、7 天内），
+    // 有缓存则首帧用 about:blank 占位，onControllerAttached 里 loadData 缓存打底渲染，
+    // 消除冷启动白屏闪烁；无缓存走真实首页加载
+    try {
+      const cachePath = (getContext(this) as common.UIAbilityContext).cacheDir + '/ttw_home_cache.html';
+      const stat = fs.statSync(cachePath);
+      if (stat.size > 20 * 1024 && stat.size <= 8 * 1024 * 1024 && Date.now() - stat.mtime < 7 * 24 * 3600 * 1000) {
+        const cf = fs.openSync(cachePath, fs.OpenMode.READ_ONLY);
+        const cbuf = new ArrayBuffer(stat.size);
+        const copt: ReadOptions = { offset: 0, length: stat.size };
+        fs.readSync(cf.fd, cbuf, copt);
+        fs.closeSync(cf);
+        this.homeCacheHtml = buffer.from(cbuf).toString();
+      }
+    } catch (err) {
+      this.homeCacheHtml = '';
+    }
+    if (this.homeCacheHtml !== '') {
+      this.firstSrc = 'about:blank';
+    }
 
     setTimeout(() => {
       this.backToHome();
@@ -448,7 +471,12 @@ struct Index {
           //.type(ButtonType.Normal)
           Button("清除缓存")
             .onClick(() => {
-              this.controller.removeCache(true)
+              this.controller.removeCache(true);
+              // 同步清除首页信息流缓存（v1.7.6），避免显式清缓存后仍用旧打底页
+              try {
+                fs.unlinkSync((getContext(this) as common.UIAbilityContext).cacheDir + '/ttw_home_cache.html');
+              } catch (err) {
+              }
             })
             .height(32)
             .width("25%")
@@ -502,14 +530,31 @@ struct Index {
                 } catch (error) {
                   console.error(`ErrorCode: ${(error as BusinessError).code},  Message: ${(error as BusinessError).message}`);
                 }
-                // Cookie 登录兜底：aboutToAppear 时内核未就绪导致写入失败的，这里补写并刷新一次
-                // （仅在用户配置了 Cookie 且首轮写入失败时才产生一次重载）
+                // 首页信息流缓存打底（v1.7.6）：把上次缓存的首页 HTML 以首页为 baseUrl 灌入渲染，
+                // 秒出信息流内容，页面脚本随后自行水合并拉取新数据；失败则回退真实首页加载
+                if (this.homeCacheHtml !== '') {
+                  const cachedHtml = this.homeCacheHtml;
+                  this.homeCacheHtml = '';
+                  const homeUrl = this.saved_home_url || 'https://www.taptap.cn/';
+                  try {
+                    this.controller.loadData(cachedHtml, 'text/html', 'utf-8', homeUrl, homeUrl);
+                    this.pageUrl = homeUrl;
+                    this.updateSafeTop();
+                  } catch (err) {
+                    try {
+                      this.controller.loadUrl(homeUrl);
+                    } catch (err2) {
+                    }
+                  }
+                }
+                // Cookie 登录兜底：aboutToAppear 时内核未就绪导致写入失败的，这里补写；
+                // 补写成功后整页加载真实首页（缓存打底页若在则被替换），保证登录态随请求生效
                 if (this.cookiePending) {
                   this.cookiePending = false;
                   if (this.applyWebCookie()) {
                     setTimeout(() => {
                       try {
-                        this.controller.refresh();
+                        this.controller.loadUrl(this.saved_home_url || 'https://www.taptap.cn/');
                       } catch (err) {
                       }
                     }, 300);
@@ -597,6 +642,10 @@ struct Index {
                   }
                 }
                 return false;
+              })
+              .onPageEnd(() => {
+                // 首页信息流缓存（v1.7.6）：页面加载完成后延迟采样整页 HTML 存盘，供下次启动打底
+                this.captureHomeCache();
               })
 
           }
@@ -1241,10 +1290,60 @@ struct Index {
       } catch (e) {
         current = '';
       }
+      // 首页缓存打底流程中：about:blank 占位页等待 onControllerAttached 灌入缓存，不抢跳首页
+      if (current === 'about:blank' && this.homeCacheHtml !== '') {
+        return;
+      }
       if (current !== '' && current === target) {
         return;
       }
       this.controller.loadUrl(target);
+    } catch (err) {
+    }
+  }
+
+  /** 首页信息流缓存（v1.7.6）：仅首页信息流参与缓存打底 */
+  private isHomeUrl(url: string): boolean {
+    const home = (this.saved_home_url || 'https://www.taptap.cn/').trim();
+    if (url === '' || home === '') {
+      return false;
+    }
+    return url === home || url.split('?')[0] === home.split('?')[0];
+  }
+
+  /** 首页加载完成后延迟 3.5s 采样整页 HTML 存盘（等信息流渲染稳定）；期间离开首页则放弃 */
+  private captureHomeCache() {
+    if (this.captureHomeCacheTimerId !== null) {
+      clearTimeout(this.captureHomeCacheTimerId);
+      this.captureHomeCacheTimerId = null;
+    }
+    this.captureHomeCacheTimerId = setTimeout(() => {
+      this.captureHomeCacheTimerId = null;
+      try {
+        if (!this.isHomeUrl(this.pageUrl)) {
+          return;
+        }
+        this.controller.runJavaScript('document.documentElement.outerHTML').then((html: string) => {
+          this.saveHomeCache(html);
+        }).catch(() => {
+        });
+      } catch (err) {
+      }
+    }, 3500);
+  }
+
+  private async saveHomeCache(html: string) {
+    try {
+      if (!html || html.length < 50 * 1024 || html.length > 8 * 1024 * 1024) {
+        return;
+      }
+      if (!this.isHomeUrl(this.pageUrl)) {
+        return;
+      }
+      const cachePath = (getContext(this) as common.UIAbilityContext).cacheDir + '/ttw_home_cache.html';
+      const f = await fs.open(cachePath, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+      await fs.write(f.fd, html);
+      await fs.close(f);
     } catch (err) {
     }
   }
@@ -1365,6 +1464,26 @@ struct Index {
     try {
       if (!url || url.indexOf('taptap://') !== 0) {
         return '';
+      }
+      // 角色查询/游戏数据页深链（game_record/detail）：还原为网页版数据页
+      // /user/<uid>/game-record/<app_id>（uid 取登录后的 user_id Cookie），未登录引导登录页
+      if (url.indexOf('game_record/detail') >= 0) {
+        const mApp = url.match(/[?&]app_id=(\d+)/);
+        if (mApp && mApp.length > 1) {
+          let uid = '';
+          try {
+            const ck = webview.WebCookieManager.fetchCookieSync('https://www.taptap.cn') || '';
+            const mUid = ck.match(/user_id=(\d+)/);
+            if (mUid && mUid.length > 1) {
+              uid = mUid[1];
+            }
+          } catch (e) {
+          }
+          if (uid !== '') {
+            return 'https://www.taptap.cn/user/' + uid + '/game-record/' + mApp[1];
+          }
+          return 'https://www.taptap.cn/login';
+        }
       }
       const qIdx = url.indexOf('?');
       if (qIdx < 0) {
