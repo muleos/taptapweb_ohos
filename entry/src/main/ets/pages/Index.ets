@@ -750,9 +750,12 @@ struct Index {
                 }
               })
           }
+          // v1.7.9：设置页隐藏"首页"行（逻辑保留，仅 UI 不显示）
+          .visibility(Visibility.None)
 
           Row()
             .height(10)
+            .visibility(Visibility.None)
 
           Row() {
             Text("UA")
@@ -820,8 +823,10 @@ struct Index {
                 }
               })
           }
+          // v1.7.9：设置页隐藏"UA"选择行（逻辑保留，仅 UI 不显示）
           .justifyContent(FlexAlign.SpaceAround)
           .width('100%')
+          .visibility(Visibility.None)
 
           Row() {
             TextArea({
@@ -854,11 +859,13 @@ struct Index {
                 }
               })
           }
-          .visibility(this.ua_type == 'custom' ? Visibility.Visible : Visibility.None)
+          // v1.7.9：设置页隐藏自定义 UA 输入区（UA 行已隐藏，此区随之隐藏）
+          .visibility(Visibility.None)
 
           //.alignItems(VerticalAlign.Top)
           Row()
             .height(10)
+            .visibility(Visibility.None)
 
           Row() {
             Text("横屏禁止刷新")
@@ -1876,7 +1883,7 @@ struct Index {
     }
     // 伪装 TapTap 客户端：Mobile UA 附加 TapTap 标识，网页据此判定为 App 内环境（可领签到奖励等）
     if (this.fakeAppUa === 'true' && this.ua_type === 'Mobile' && this.userAgent.indexOf('TapTap/') < 0) {
-      this.userAgent = this.userAgent + ' TapTap/2.94.0-rel_1000';
+      this.userAgent = this.userAgent + ' TapTap/2.83.0-rel_1000';
     }
     this.controller.setCustomUserAgent(this.userAgent);
   }
