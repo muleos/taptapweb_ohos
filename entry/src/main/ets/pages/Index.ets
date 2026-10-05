@@ -1071,6 +1071,31 @@ struct Index {
           }
           .width('100%')
 
+          // 获取当前账号 Cookie（v1.7.5）：应用内已登录时一键取出 WebView 现有登录 Cookie，
+          // 填入上方输入框供查看/复制，再点"应用"固化到双域（与手动粘贴输入并存）
+          Row() {
+            Text('应用内已登录时，可一键取出当前登录 Cookie')
+              .fontSize(11)
+              .fontColor($r('app.color.dialog_text_secondary'))
+              .layoutWeight(1)
+            Button('获取当前 Cookie')
+              .type(ButtonType.Capsule)
+              .backgroundColor($r('app.color.dialog_text_secondary'))
+              .height(32)
+              .fontSize(12)
+              .onClick(() => {
+                const got = this.fetchCurrentCookie();
+                if (got === '') {
+                  promptAction.showToast({ message: '未取到 Cookie，请先在应用内登录' });
+                  return;
+                }
+                this.cookieInput = got;
+                promptAction.showToast({ message: '已填入当前 Cookie，点"应用"生效' });
+              })
+          }
+          .width('100%')
+          .margin({ top: 8 })
+
           Row()
             .height(16)
 
@@ -1224,6 +1249,54 @@ struct Index {
     }
   }
 
+  /** 获取当前账号 Cookie（v1.7.5）：从 WebView CookieStore 读出 taptap.cn 与
+   * accounts.taptap.cn 两个域的现有 Cookie，按名称去重合并（账号域后写、覆盖主站同名项，
+   * 保证登录态优先），拼成 k=v; k=v 串返回。空串表示取不到（未登录/内核未就绪） */
+  private fetchCurrentCookie(): string {
+    const names: string[] = [];
+    const values: string[] = [];
+    const sources: string[] = ['https://www.taptap.cn', 'https://accounts.taptap.cn'];
+    for (let s = 0; s < sources.length; s++) {
+      let raw = '';
+      try {
+        raw = webview.WebCookieManager.fetchCookieSync(sources[s]) || '';
+      } catch (err) {
+        raw = '';
+      }
+      const parts = raw.split(';');
+      for (let i = 0; i < parts.length; i++) {
+        const kv = parts[i].trim();
+        const eq = kv.indexOf('=');
+        if (eq <= 0) {
+          continue;
+        }
+        const name = kv.substring(0, eq).trim();
+        const value = kv.substring(eq + 1).trim();
+        if (name === '' || value === '') {
+          continue;
+        }
+        let idx = -1;
+        for (let j = 0; j < names.length; j++) {
+          if (names[j] === name) {
+            idx = j;
+            break;
+          }
+        }
+        if (idx >= 0) {
+          values[idx] = value;
+        } else {
+          names.push(name);
+          values.push(value);
+        }
+      }
+    }
+    let out = '';
+    for (let j = 0; j < names.length; j++) {
+      out = out + (out === '' ? '' : '; ') + names[j] + '=' + values[j];
+    }
+    return out;
+  }
+
   /** Cookie 登录（v1.7.4）：把用户粘贴的网页版 Cookie 串逐对写入
    * taptap.cn / accounts.taptap.cn 域，写入后随请求自动携带。
    * 返回是否成功写入；串为空返回 false（不置 pending） */
@@ -1260,18 +1333,88 @@ struct Index {
       // 优先走系统链接分发（Deep Linking / App Linking），可拉起注册了该协议的应用
       let linkOptions: OpenLinkOptions = { appLinkingOnly: false };
       await uiContext.openLink(url, linkOptions);
+      return;
     } catch (e) {
-      // 兜底：显式构造 Want 拉起
-      try {
-        let want: Want = {
-          action: 'ohos.want.action.viewData',
-          uri: url
-        };
-        await uiContext.startAbility(want);
-      } catch (err) {
-        promptAction.showToast({ message: '未找到可以打开此链接的应用' });
-      }
     }
+    try {
+      // 兜底：显式构造 Want 拉起
+      let want: Want = {
+        action: 'ohos.want.action.viewData',
+        uri: url
+      };
+      await uiContext.startAbility(want);
+      return;
+    } catch (err) {
+    }
+    // 壳内兜底（v1.7.5）：本机没有应用接手 taptap:// 深链时（未装 TapTap 客户端的常态），
+    // 尝试把深链还原成等价 https 页面在壳内继续打开——活动页"前往查看"、工具箱工具项
+    // 这类死路按钮大多带 url= / path= / app_id= 参数，可无损映射回网页版
+    const fallback = this.taptapDeepLinkToFallback(url);
+    if (fallback !== '') {
+      promptAction.showToast({ message: '正在打开网页版' });
+      this.controller.loadUrl(fallback);
+      return;
+    }
+    promptAction.showToast({ message: '未找到可以打开此链接的应用' });
+  }
+
+  /** taptap:// 深链 -> 等价 https 链接（v1.7.5）。
+   * 仅做无损失的参数还原：url=（内层 http 链接）、path=（站内路径）、app_id=（详情页）。
+   * 还原不了（纯客户端原生页）返回空串，由调用方提示前往客户端 */
+  private taptapDeepLinkToFallback(url: string): string {
+    try {
+      if (!url || url.indexOf('taptap://') !== 0) {
+        return '';
+      }
+      const qIdx = url.indexOf('?');
+      if (qIdx < 0) {
+        return '';
+      }
+      const parts = url.substring(qIdx + 1).split('&');
+      let innerUrl = '';
+      let path = '';
+      let appId = '';
+      for (let i = 0; i < parts.length; i++) {
+        const kv = parts[i];
+        const eq = kv.indexOf('=');
+        if (eq <= 0) {
+          continue;
+        }
+        const key = kv.substring(0, eq).toLowerCase();
+        let val = kv.substring(eq + 1);
+        try {
+          val = decodeURIComponent(val.replace(/\+/g, ' '));
+        } catch (e) {
+        }
+        if (key === 'url' && val.indexOf('http') === 0 && innerUrl === '') {
+          innerUrl = val;
+        } else if (key === 'path' && val.length > 0 && path === '') {
+          path = val;
+        } else if (key === 'app_id' && val.length > 0 && appId === '') {
+          let digits = true;
+          for (let d = 0; d < val.length; d++) {
+            if (val.charAt(d) < '0' || val.charAt(d) > '9') {
+              digits = false;
+              break;
+            }
+          }
+          if (digits) {
+            appId = val;
+          }
+        }
+      }
+      if (innerUrl !== '') {
+        return innerUrl;
+      }
+      if (path.charAt(0) === '/') {
+        return 'https://www.taptap.cn' + path;
+      }
+      if (appId !== '') {
+        return 'https://www.taptap.cn/app/' + appId;
+      }
+    } catch (err) {
+    }
+    return '';
   }
 
   get_isWebDark(): boolean {
